@@ -496,22 +496,22 @@ running  6 tests ... nexa-topology ✓ ( 6 passed)
 ```mermaid
 gantt
     title NexaCore Roadmap
-    dateFormat  YYYY-Q
+    dateFormat YYYY-MM-DD
     section Core
-    GPU kernels (wgpu)       :2026-Q3, 2026-Q4
-    ONNX interop             :2026-Q3, 2026-Q4
-    Python bindings (pyo3)   :2026-Q3, 2026-Q4
+    GPU kernels (wgpu)       :2026-07-01, 2026-12-31
+    ONNX interop             :2026-07-01, 2026-12-31
+    Python bindings (pyo3)   :2026-07-01, 2026-12-31
     section Distributed
-    Distributed vector compute :2026-Q4, 2027-Q1
-    Vector database layer    :2026-Q4, 2027-Q1
+    Distributed vector compute :2026-10-01, 2027-03-31
+    Vector database layer    :2026-10-01, 2027-03-31
     section AI
-    Multimodal representations :2027-Q1, 2027-Q2
-    Symbolic-neural hybrid   :2027-Q1, 2027-Q2
-    Edge AI runtime          :2027-Q2, 2027-Q3
+    Multimodal representations :2027-01-01, 2027-06-30
+    Symbolic-neural hybrid   :2027-01-01, 2027-06-30
+    Edge AI runtime          :2027-04-01, 2027-09-30
     section Advanced
-    Quantum-inspired representations :2027-Q3, 2027-Q4
-    Compressed-domain inference      :2027-Q2, 2027-Q3
-    Holographic memory persistence   :2027-Q1, 2027-Q2
+    Quantum-inspired representations :2027-07-01, 2027-12-31
+    Compressed-domain inference      :2027-04-01, 2027-09-30
+    Holographic memory persistence   :2027-01-01, 2027-06-30
 ```
 
 ### Planned Features
