@@ -385,6 +385,70 @@ NexaCore Benchmark (dim=10000)
   Bundle (10 vecs): 100 ops in 15.2ms   (6.6K ops/sec)
 ```
 
+## MCP Server
+
+NexaCore ships as an [MCP](https://modelcontextprotocol.io/) server, letting any MCP-compatible client (Claude Desktop, Cursor, etc.) use hyperdimensional computing tools directly.
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `encode` | Encode text/JSON/CSV into hypervector space |
+| `inspect` | Inspect `.nexa` file metadata and checksums |
+| `similarity` | Compute Hamming similarity between two texts |
+| `benchmark` | Run XOR/Hamming/bundle throughput benchmarks |
+| `topology` | Encode neural network architecture into HV space |
+| `encode_and_inspect` | Encode data and inspect the result in one call |
+
+### Running Locally
+
+```bash
+# Set the binary path and run the STDIO server
+NEXA_BIN=./target/release/nexa python mcp/server.py
+```
+
+### MCPize Deployment
+
+The project includes a `mcpize.yaml` for deployment via [MCPize CLI](https://github.com/mcpize/cli):
+
+```bash
+# Deploy (builds Docker image with Rust binary + Python MCP server)
+mcpize deploy
+```
+
+```mermaid
+flowchart LR
+    Client["MCP Client<br/>(Claude, Cursor)"] -- STDIO --> MCPServer["mcp/server.py<br/>(FastMCP)"]
+    MCPServer -- subprocess --> NexaBin["nexa CLI binary"]
+    NexaBin --> HVS["Hypervector Space"]
+```
+
+### Example: MCP Tool Call
+
+```json
+{
+  "tool": "encode",
+  "arguments": {
+    "content": "The quick brown fox jumps over the lazy dog",
+    "content_type": "text",
+    "dim": 10000
+  }
+}
+```
+
+Response:
+
+```
+NexaCore Encoder
+  Input:     input.txt (43 bytes)
+  Type:      Text
+  Dimension: 10000
+  Output:    encoded.nexa
+  Status:    ✓ Encoded successfully
+
+Encoded file size: 1538 bytes
+```
+
 ---
 
 ## SIMD Optimization
