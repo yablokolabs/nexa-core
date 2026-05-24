@@ -12,6 +12,7 @@ members = [
     "crates/nexa-cli",
     "crates/nexa-bench",
     "crates/nexa-python",
+    "crates/nexa-proof",
 ]
 
 [workspace.package]
@@ -53,3 +54,4 @@ nexa-memory = { path = "crates/nexa-memory" }
 nexa-encoder = { path = "crates/nexa-encoder" }
 nexa-decoder = { path = "crates/nexa-decoder" }
 nexa-topology = { path = "crates/nexa-topology" }
+nexa-proof = { path = "crates/nexa-proof" }

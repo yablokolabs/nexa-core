@@ -1,0 +1,7 @@
+name = "NexaProofs"
+version = "0.1.0"
+defaultTargets = ["Nexa"]
+
+[[lean_lib]]
+name = "Nexa"
+roots = ["Nexa"]

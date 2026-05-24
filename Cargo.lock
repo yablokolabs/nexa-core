@@ -463,6 +463,7 @@ dependencies = [
  "nexa-hdc",
  "nexa-holography",
  "nexa-memory",
+ "nexa-proof",
  "nexa-runtime",
  "nexa-topology",
  "serde_json",
@@ -555,6 +556,16 @@ dependencies = [
  "rayon",
  "thiserror",
  "tracing",
+]
+
+[[package]]
+name = "nexa-proof"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

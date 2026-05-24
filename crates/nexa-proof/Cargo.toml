@@ -1,0 +1,12 @@
+[package]
+name = "nexa-proof"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Formal verification bridge — invokes Lean 4 proofs for NexaCore invariants"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }

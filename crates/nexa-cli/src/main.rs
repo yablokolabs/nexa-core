@@ -46,6 +46,8 @@ enum Commands {
     },
     /// Encode model topology from JSON config
     Topology { input: String },
+    /// Verify formal proofs (requires Lean 4 / lake)
+    Verify,
 }
 
 fn main() {
@@ -68,6 +70,7 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Benchmark { dim } => cmd_benchmark(dim),
         Commands::Recover { input, output } => cmd_recover(&input, output.as_deref()),
         Commands::Topology { input } => cmd_topology(&input),
+        Commands::Verify => cmd_verify(),
     }
 }
 
@@ -365,4 +368,20 @@ fn cmd_topology(input: &str) -> Result<()> {
     println!("  Popcount:   {} / {}", hv.popcount(), hv.dim());
     println!("  Status:     ✓ Topology encoded successfully");
     Ok(())
+}
+
+fn cmd_verify() -> Result<()> {
+    let verifier = nexa_proof::ProofVerifier::discover()
+        .context("Cannot find proofs/ directory. Run from the NexaCore workspace root.")?;
+
+    println!("Running Lean 4 proof verification...\n");
+
+    let report = verifier.verify_all();
+    print!("{}", nexa_proof::ProofVerifier::print_report(&report));
+
+    if report.verified {
+        Ok(())
+    } else {
+        anyhow::bail!("Formal verification failed")
+    }
 }

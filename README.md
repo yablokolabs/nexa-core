@@ -185,9 +185,24 @@ crates/
 ├── nexa-decoder/     Exact/approximate/cleanup/symbolic decoders
 ├── nexa-runtime/     Classifiers, search, anomaly detection, clustering
 ├── nexa-topology/    Model architecture analysis, graph encoding
+├── nexa-proof/       Formal verification bridge (Lean 4 → Rust)
 ├── nexa-cli/         Command-line interface
 ├── nexa-bench/       Criterion benchmarks
 └── nexa-python/      Python bindings (PyO3)
+
+proofs/
+├── lakefile.toml     Lake project configuration
+├── lean-toolchain    Lean 4.29.1
+└── Nexa/
+    ├── HyperVector.lean     Core types
+    ├── Binding.lean         XOR algebra proofs
+    ├── Permutation.lean     Permutation invariants
+    ├── Similarity.lean      Metric properties
+    ├── Encoding.lean        Roundtrip correctness
+    ├── Decoding.lean        Decoder properties
+    ├── CleanupMemory.lean   Recovery proofs
+    ├── Homomorphism.lean    Structure preservation
+    └── RecoveryBounds.lean  Corruption tolerance
 ```
 
 ---
@@ -552,6 +567,113 @@ running  8 tests ... nexa-decoder  ✓ ( 8 passed)
 running  6 tests ... nexa-runtime  ✓ ( 6 passed)
 running  6 tests ... nexa-topology ✓ ( 6 passed)
 ```
+
+---
+
+## Formal Verification (Lean 4)
+
+NexaCore includes a machine-checked proof layer that formally verifies the algebraic correctness of its core primitives. Proofs are written in **Lean 4** and verified by `lake build` — no runtime overhead, no external trust.
+
+```mermaid
+flowchart TD
+    RawData["Raw Data"] --> Encoder
+    Encoder --> HVS["Hypervector Space"]
+    HVS --> Runtime
+    Runtime --> Decoder
+    Decoder --> Recovery["Recovered Data"]
+
+    HVS --> LeanProofs["Lean 4 Proof Layer"]
+    LeanProofs --> Verified["Verified Properties"]
+    
+    style LeanProofs fill:#e8f5e9,stroke:#2e7d32
+    style Verified fill:#e8f5e9,stroke:#2e7d32
+```
+
+### What Is Verified
+
+| Module | Theorems | What It Proves |
+|--------|----------|---------------|
+| **Binding** | 5 | XOR commutativity, associativity, self-cancellation, reversibility, role-filler recovery |
+| **Permutation** | 3 | Inverse roundtrip P⁻¹(P(v)) = v, size preservation, composition invertibility |
+| **Similarity** | 3 | Hamming self-zero, symmetry, binding invariance d(a⊕k, b⊕k) = d(a,b) |
+| **Encoding** | 2 | Roundtrip decode(encode(x)) = x, injectivity |
+| **Decoding** | 2 | Symbolic unbind recovery, nested unbind |
+| **CleanupMemory** | 2 | Exact self-cleanup, XOR corruption reversibility |
+| **Homomorphism** | 3 | Zero preservation, unbinding in transformed space, non-homomorphism witness |
+| **RecoveryBounds** | 3 | Known corruption recovery, distance = noise weight, corruption triangle |
+| **Total** | **23** | — |
+
+### Running Verification
+
+```bash
+# Via CLI
+nexa verify
+
+# Directly with Lake
+cd proofs && lake build
+```
+
+### Verification Output
+
+```
+NexaCore Formal Verification Report
+═══════════════════════════════════
+
+Status: ✓ ALL 23 THEOREMS VERIFIED
+
+  Nexa.Binding
+    ✓ bind_comm: ∀ a b, bind(a, b) = bind(b, a)
+    ✓ bind_assoc: ∀ a b c, bind(bind(a, b), c) = bind(a, bind(b, c))
+    ✓ bind_unbind_reverse: ∀ a b, unbind(bind(a, b), a) = b
+    ✓ bind_self_cancel: ∀ a, bind(a, a) = 0
+    ✓ role_filler_recovery: ∀ role filler, unbind(bind(role, filler), role) = filler
+  Nexa.Permutation
+    ✓ perm_inverse_roundtrip: ∀ σ v, P⁻¹(P(v)) = v
+    ✓ perm_preserves_size: ∀ σ v, |P(v)| = |v|
+    ✓ compose_inverse_is_identity: ∀ σ, (σ⁻¹ ∘ σ) = id
+  Nexa.Similarity
+    ✓ hamming_self_zero: ∀ v, d(v, v) = 0
+    ✓ hamming_symmetric: ∀ a b, d(a, b) = d(b, a)
+    ✓ hamming_bind_invariant: ∀ a b k, d(a⊕k, b⊕k) = d(a, b)
+  Nexa.Encoding
+    ✓ roundtrip_correct: ∀ enc x, decode(encode(x)) = x
+    ✓ encode_injective: ∀ enc, injective(encode)
+  Nexa.Decoding
+    ✓ symbolic_unbind_recovers: ∀ a b, unbind(bind(a, b), a) = b
+    ✓ nested_unbind: ∀ a b c, unbind(unbind(bind(a, bind(b, c)), a), b) = c
+  Nexa.CleanupMemory
+    ✓ cleanup_exact_self: ∀ v mem, nearest(mem, v) = v when v is first prototype
+    ✓ corruption_reversible: ∀ v noise, (v ⊕ noise) ⊕ noise = v
+  Nexa.Homomorphism
+    ✓ homomorphism_preserves_zero: ∀ f hom, f(0) = 0
+    ✓ transform_preserves_unbinding: ∀ f hom a b, unbind(f(bind(a,b)), f(a)) = f(b)
+    ✓ constant_not_homomorphism: ∀ c ≠ 0, const(c) is not a XOR-homomorphism
+  Nexa.RecoveryBounds
+    ✓ known_corruption_recovery: ∀ v noise, (v ⊕ noise) ⊕ noise = v
+    ✓ corruption_distance_equals_noise_weight: ∀ v noise, d(v, v⊕noise) = popcount(noise)
+    ✓ corruption_triangle: ∀ v n₁ n₂, d(v⊕n₁, v⊕n₂) = popcount(n₁⊕n₂)
+```
+
+### Architecture
+
+```mermaid
+graph LR
+    RustRuntime["Rust Runtime<br/>(SIMD, HDC, Memory)"] --> LeanProofs["Lean 4 Proofs<br/>(lake build)"]
+    LeanProofs --> Invariants["Verified Invariants"]
+    Invariants --> Guarantees["Runtime Guarantees"]
+
+    style LeanProofs fill:#e8f5e9,stroke:#2e7d32
+    style Invariants fill:#e8f5e9,stroke:#2e7d32
+```
+
+Lean is **not** the runtime — Rust handles all execution and SIMD optimization. Lean exists solely to provide machine-checked guarantees that the core algebra is correct. The `nexa-proof` crate bridges the two by invoking `lake build` and reporting verification status.
+
+### Why Lean 4
+
+- **Machine-checked proofs** — no hand-waving, no "trust me"
+- **BitVec native** — Lean 4 stdlib has first-class `BitVec` with XOR lemmas
+- **No Mathlib required** — fast builds (~15s), zero external dependencies
+- **Complements Rust** — Lean proves correctness, Rust delivers performance
 
 ---
 

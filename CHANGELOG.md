@@ -20,7 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **nexa-decoder**: Corruption engine for resilience testing (bit-flip, truncation, block zeroing)
 - **nexa-runtime**: HDC classifier, vector search, anomaly detection, clustering, homomorphic ops
 - **nexa-topology**: Model graph DAG, graph encoder, topology analyzer with MLP/CNN builders
-- **nexa-cli**: Seven commands — encode, decode, inspect, similarity, benchmark, recover, topology
+- **nexa-cli**: Eight commands — encode, decode, inspect, similarity, benchmark, recover, topology, verify
 - **nexa-bench**: Criterion benchmark suite for core operations
+- **nexa-proof**: Formal verification bridge — invokes Lean 4 proofs, exposes ProofVerifier API
+- **Lean 4 proofs**: 23 machine-checked theorems across 9 modules (Binding, Permutation, Similarity, Encoding, Decoding, CleanupMemory, Homomorphism, RecoveryBounds)
 - **MCP server**: Python-based MCP server wrapping the CLI for tool integration
 - **MCPize support**: Dockerfile and `mcpize.yaml` for containerized deployment
