@@ -1,0 +1,16 @@
+[package]
+name = "nexa-topology"
+version = "0.1.0"
+edition = "2021"
+description = "Architecture topology analysis — model graph encoding, topology comparison"
+
+[dependencies]
+nexa-core = { workspace = true }
+nexa-hdc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }

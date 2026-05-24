@@ -1,0 +1,16 @@
+[package]
+name = "nexa-hdc"
+version = "0.1.0"
+edition = "2021"
+description = "Hyperdimensional computing operations — codebooks, sequence encoding, role-filler bindings"
+
+[dependencies]
+nexa-core = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }

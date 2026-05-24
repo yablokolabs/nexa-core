@@ -1,0 +1,18 @@
+[package]
+name = "nexa-decoder"
+version = "0.1.0"
+edition = "2021"
+description = "Decoder engine — exact, approximate, cleanup, and symbolic decoding"
+
+[dependencies]
+nexa-core = { workspace = true }
+nexa-hdc = { workspace = true }
+nexa-memory = { workspace = true }
+nexa-encoder = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }

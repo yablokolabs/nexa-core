@@ -1,0 +1,18 @@
+[package]
+name = "nexa-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Runtime compute layer — classifiers, similarity search, anomaly detection, homomorphic ops"
+
+[dependencies]
+nexa-core = { workspace = true }
+nexa-hdc = { workspace = true }
+nexa-memory = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+rayon = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }

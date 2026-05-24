@@ -1,0 +1,23 @@
+[package]
+name = "nexa-bench"
+version = "0.1.0"
+edition = "2021"
+description = "NexaCore benchmarks — criterion-based performance measurement"
+
+[dependencies]
+nexa-core = { workspace = true }
+nexa-hdc = { workspace = true }
+nexa-holography = { workspace = true }
+nexa-memory = { workspace = true }
+nexa-encoder = { workspace = true }
+nexa-decoder = { workspace = true }
+nexa-runtime = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "nexacore_bench"
+harness = false

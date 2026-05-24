@@ -1,0 +1,20 @@
+[package]
+name = "nexa-encoder"
+version = "0.1.0"
+edition = "2021"
+description = "Universal encoder — text, JSON, CSV, binary data to hypervector space"
+
+[dependencies]
+nexa-core = { workspace = true }
+nexa-hdc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+csv = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+bincode = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
