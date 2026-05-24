@@ -15,14 +15,14 @@ pub struct SearchResult {
 // ---------------------------------------------------------------------------
 pub struct VectorSearch {
     corpus: Vec<(String, BinaryHV)>,
-    dim: usize,
+    _dim: usize,
 }
 
 impl VectorSearch {
     pub fn new(dim: usize) -> Self {
         Self {
             corpus: Vec::new(),
-            dim,
+            _dim: dim,
         }
     }
 
@@ -140,7 +140,7 @@ impl HdcClassifier {
 pub struct AnomalyDetector {
     reference: Vec<BinaryHV>,
     threshold: f64,
-    dim: usize,
+    _dim: usize,
 }
 
 impl AnomalyDetector {
@@ -148,7 +148,7 @@ impl AnomalyDetector {
         Self {
             reference: Vec::new(),
             threshold,
-            dim,
+            _dim: dim,
         }
     }
 
@@ -187,12 +187,12 @@ pub struct ClusterAssignment {
 // Clusterer — K-means-style clustering in HV space
 // ---------------------------------------------------------------------------
 pub struct Clusterer {
-    dim: usize,
+    _dim: usize,
 }
 
 impl Clusterer {
     pub fn new(dim: usize) -> Self {
-        Self { dim }
+        Self { _dim: dim }
     }
 
     pub fn cluster(

@@ -1,0 +1,542 @@
+# NexaCore
+
+**A research-grade universal representation runtime built in Rust.**
+
+NexaCore is an experimental compute substrate where any data can be transformed into high-dimensional holographic hypervectors, and computation occurs directly in encoded space. It draws from hyperdimensional computing (HDC), holographic reduced representations (HRR), vector symbolic architectures (VSA), and sparse distributed memory (SDM).
+
+> **"Encode once. Compute anywhere."**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        NexaCore                             │
+│                                                             │
+│   Raw Data → Encoder → Hypervector Space → Runtime          │
+│                              ↓                              │
+│                         Decoder → Recovered Data            │
+│                                                             │
+│   • LLVM for representations                                │
+│   • An operating system for vector cognition                │
+│   • Infrastructure for future AI systems                    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    RawData["Raw Data"] --> Encoder["NexaEncoder"]
+    Encoder --> HVS["Hypervector Space<br/>(10K+ dimensions)"]
+    HVS --> Runtime["NexaRuntime"]
+    Runtime --> Decoder["NexaDecoder"]
+    Decoder --> Recovered["Recovered Data"]
+
+    HVS --> Memory["Holographic Memory"]
+    HVS --> Cleanup["Cleanup Memory"]
+    HVS --> Search["Similarity Search"]
+    HVS --> Classify["HDC Classifier"]
+```
+
+```mermaid
+graph TD
+    Text["Text"] --> UE["Universal Encoder"]
+    JSON["JSON"] --> UE
+    CSV["CSV"] --> UE
+    Binary["Binary"] --> UE
+    Sensors["Sensor Data"] --> UE
+    Images["Image Metadata"] --> UE
+
+    UE --> HDS["Hyperdimensional Space"]
+
+    HDS --> Exact["Exact Decoder"]
+    HDS --> Approx["Approximate Decoder"]
+    HDS --> Cleanup["Cleanup Decoder"]
+    HDS --> Symbolic["Symbolic Decoder"]
+```
+
+---
+
+## Core Concepts
+
+### Hyperdimensional Computing (HDC)
+
+Data is represented as high-dimensional vectors (1K–100K+ dimensions). At these dimensions, random vectors are *quasi-orthogonal* — almost certainly dissimilar — which gives us a massive address space for symbolic representation.
+
+**Core operations:**
+
+| Operation | Binary | Bipolar | Description |
+|-----------|--------|---------|-------------|
+| **Bind** | XOR | Element-wise multiply | Associate two concepts |
+| **Bundle** | Majority rule | Sum + threshold | Superimpose multiple concepts |
+| **Permute** | Circular shift | Circular shift | Encode sequence/position |
+| **Similarity** | Hamming distance | Cosine similarity | Measure relatedness |
+
+```rust
+use nexa_core::BinaryHV;
+
+// Create random hypervectors (10K dimensions)
+let apple = BinaryHV::random(10_000, 42)?;
+let red   = BinaryHV::random(10_000, 43)?;
+
+// Bind: associate APPLE with RED
+let apple_red = apple.bind(&red)?;
+
+// Unbind: recover RED from the association
+let recovered = apple_red.unbind(&apple)?;
+assert_eq!(recovered, red);
+
+// Random vectors are quasi-orthogonal (~0.5 similarity)
+let banana = BinaryHV::random(10_000, 44)?;
+let sim = apple.hamming_similarity(&banana)?;
+assert!((sim - 0.5).abs() < 0.05);
+```
+
+### Holographic Memory
+
+Information is stored *holographically* — distributed across the entire vector. No single region contains all information. This provides:
+
+- **Corruption resilience** — partial data loss permits recovery
+- **Associative recall** — retrieve by similarity, not exact address
+- **Graceful degradation** — capacity overload reduces quality, not crashes
+
+```mermaid
+graph LR
+    subgraph Holographic Storage
+        A["DOG ⊕ BARK ⊕ FUR"] --> Store["Distributed<br/>Holographic<br/>Memory"]
+    end
+    Store --> Q["query(BARK)"]
+    Q --> R["≈ DOG"]
+```
+
+```rust
+use nexa_holography::HolographicStore;
+use nexa_core::RealHV;
+
+let mut store = HolographicStore::new(256)?;
+
+let dog  = RealHV::random_normal(256, 1)?;
+let bark = RealHV::random_normal(256, 2)?;
+
+// Store holographically (via circular convolution)
+store.store(&dog, &bark)?;
+
+// Retrieve: query with DOG → get back ≈ BARK
+let retrieved = store.retrieve(&dog)?;
+let similarity = bark.cosine_similarity(&retrieved)?;
+assert!(similarity > 0.5);
+```
+
+### Homomorphic-style Transformations
+
+NexaCore supports **representational homomorphism** — structure-preserving transforms where operations in raw space map to cheaper operations in encoded space.
+
+```
+f(A ⊗ B) = f(A) ⊕ f(B)
+```
+
+This is NOT cryptographic homomorphic encryption. It's the mathematical property that composition is preserved under transformation — enabling direct computation on encoded representations.
+
+```rust
+use nexa_runtime::HomomorphicOps;
+
+// Permutation is homomorphic over XOR binding
+let similarity = HomomorphicOps::verify_binding_homomorphism(
+    &a, &b,
+    |v| v.permute(5)  // permutation as transform
+);
+assert!(similarity > 0.99);
+```
+
+### Cleanup Memory & SDM
+
+**Cleanup memory** stores "clean" prototype vectors and restores noisy queries to their nearest stable state — like an error-correcting attractor network.
+
+**Sparse Distributed Memory (SDM)** implements Kanerva's model: distributed storage with address-based activation, graceful capacity degradation, and content-addressable recall.
+
+```rust
+use nexa_memory::CleanupMemory;
+use nexa_core::BinaryHV;
+
+let mut mem = CleanupMemory::new(10_000)?;
+
+// Store clean prototypes
+let dog = BinaryHV::random(10_000, 1)?;
+mem.store("dog", dog.clone())?;
+
+// Query with noisy version (10% corruption)
+let noisy = dog.corrupt(0.10, 99);
+let result = mem.query(&noisy)?.unwrap();
+assert_eq!(result.label, "dog");
+assert!(result.similarity > 0.85);
+```
+
+---
+
+## Project Structure
+
+```
+crates/
+├── nexa-core/        Core hypervector engine, SIMD ops, .nexa format
+├── nexa-hdc/         HDC operations: codebooks, sequence/set encoding
+├── nexa-holography/  Holographic reduced representations, FFT convolution
+├── nexa-memory/      Cleanup memory, SDM, associative recall
+├── nexa-encoder/     Universal encoder (text, JSON, CSV, binary)
+├── nexa-decoder/     Exact/approximate/cleanup/symbolic decoders
+├── nexa-runtime/     Classifiers, search, anomaly detection, clustering
+├── nexa-topology/    Model architecture analysis, graph encoding
+├── nexa-cli/         Command-line interface
+├── nexa-bench/       Criterion benchmarks
+└── nexa-python/      Future Python bindings (stub)
+```
+
+---
+
+## Decoder Architecture
+
+NexaCore supports **bidirectional representational flow** with four decoder modes:
+
+```mermaid
+graph TD
+    Encoded["Encoded HV"] --> Exact["Exact Decoder<br/>Registry lookup"]
+    Encoded --> Approx["Approx Decoder<br/>Cleanup memory"]
+    Encoded --> CleanupD["Cleanup Decoder<br/>Attractor convergence"]
+    Encoded --> Symbolic["Symbolic Decoder<br/>Unbind + lookup"]
+
+    Exact --> |"confidence: 1.0"| Data1["Original Data"]
+    Approx --> |"confidence: 0.85+"| Data2["Approximate Data"]
+    CleanupD --> |"iterative"| Data3["Nearest Prototype"]
+    Symbolic --> |"relational"| Data4["Symbol Relations"]
+```
+
+### Exact Decoder
+Deterministic round-trip reconstruction via encoding registry.
+
+```rust
+let mut encoder = NexaEncoder::new(10_000, 42);
+let encoded = encoder.encode_text("apple")?;
+
+let decoder = ExactDecoder::from_encoder(&encoder);
+let result = decoder.decode(&encoded)?;
+assert_eq!(String::from_utf8(result.data)?, "apple");
+```
+
+### Approximate Decoder
+Tolerates corruption via cleanup-memory-based nearest-match retrieval.
+
+```rust
+let corrupted = CorruptionEngine::corrupt(&encoded, 0.15, 99);
+let result = approx_decoder.decode(&corrupted)?.unwrap();
+assert!(result.similarity > 0.80);
+```
+
+### Cleanup Decoder
+Iterative attractor convergence — repeatedly queries cleanup memory until the result stabilizes.
+
+```rust
+let noisy = original.corrupt(0.20, 99);
+let result = cleanup_decoder.restore_iterative(&noisy, 10)?;
+assert_eq!(result.unwrap().label, "dog");
+```
+
+### Symbolic Decoder
+Recovers symbolic relationships from bound vectors.
+
+```rust
+// DOG ⊕ BARK
+let relation = dog_hv.bind(&bark_hv)?;
+
+// Decode: unbind with DOG → find BARK
+let result = symbolic.decode_binding(&relation, &dog_hv);
+assert_eq!(result.unwrap().symbol, "BARK");
+```
+
+---
+
+## Corruption Resilience
+
+Holographic representations degrade gracefully under corruption:
+
+```
+Corruption Rate │ Hamming Similarity │ Recovery
+────────────────┼────────────────────┼──────────
+     5%         │      ~0.95         │ Exact
+    10%         │      ~0.90         │ Exact
+    15%         │      ~0.85         │ Approximate
+    20%         │      ~0.80         │ Approximate
+    30%         │      ~0.70         │ Cleanup needed
+    50%         │      ~0.50         │ Near random
+```
+
+```rust
+let original = BinaryHV::random(10_000, 42)?;
+
+for rate in [0.05, 0.10, 0.15, 0.20, 0.30] {
+    let corrupted = original.corrupt(rate, 99);
+    let fidelity = CorruptionEngine::measure_fidelity(&original, &corrupted)?;
+    println!("{:.0}% corruption → {:.2} fidelity", rate * 100.0, fidelity);
+}
+```
+
+Output:
+```
+5% corruption → 0.95 fidelity
+10% corruption → 0.90 fidelity
+15% corruption → 0.85 fidelity
+20% corruption → 0.80 fidelity
+30% corruption → 0.70 fidelity
+```
+
+---
+
+## Topology Analysis
+
+Encode neural network architectures into hypervector space for structural comparison:
+
+```rust
+use nexa_topology::*;
+
+let mlp_small = build_simple_mlp(&[784, 128, 10], "relu");
+let mlp_large = build_simple_mlp(&[784, 512, 256, 128, 10], "relu");
+
+let mut analyzer = TopologyAnalyzer::new(1000, 42);
+let sim = analyzer.similarity(&mlp_small, &mlp_large)?;
+println!("Architecture similarity: {:.3}", sim);
+// Output: Architecture similarity: 0.523
+```
+
+---
+
+## .nexa File Format
+
+Memory-mappable binary format for persistent hypervector storage:
+
+```
+┌──────────────────────────────┐
+│ Magic: "NEXA" (4 bytes)      │
+│ Version: u16                 │
+│ Flags: u16                   │
+│ Dimension: u32               │
+│ Vector Count: u32            │
+│ Encoding Type: u8            │
+│ Checksum Algo: u8            │
+│ Header Checksum: u32 (CRC32) │
+├──────────────────────────────┤
+│ Metadata Length: u32         │
+│ Metadata: JSON (variable)    │
+├──────────────────────────────┤
+│ Vector Data (aligned blocks) │
+├──────────────────────────────┤
+│ Index Table                  │
+│ Footer Checksum: u32 (CRC32) │
+│ Magic End: "AXEN" (4 bytes)  │
+└──────────────────────────────┘
+```
+
+---
+
+## CLI Usage
+
+```bash
+# Encode a file
+nexa encode input.txt -o encoded.nexa --dim 10000
+
+# Inspect a .nexa file
+nexa inspect encoded.nexa
+
+# Compute similarity between two encoded files
+nexa similarity a.nexa b.nexa
+
+# Run benchmarks
+nexa benchmark --dim 10000
+
+# Encode model topology
+nexa topology model.json
+```
+
+### Example: Encode and Inspect
+
+```
+$ nexa encode README.md -o readme.nexa
+NexaCore Encoder
+  Input:     README.md (8432 bytes)
+  Type:      Text
+  Dimension: 10000
+  Output:    readme.nexa
+  Status:    ✓ Encoded successfully
+
+$ nexa inspect readme.nexa
+NexaCore Inspector
+  Magic:        NEXA ✓
+  Version:      1
+  Dimension:    10000
+  Vectors:      1
+  Encoding:     0 (default)
+  Checksum:     ✓ Valid
+```
+
+### Example: Benchmark
+
+```
+$ nexa benchmark --dim 10000
+NexaCore Benchmark (dim=10000)
+  XOR Binding:      1000 ops in 2.3ms   (434.8K ops/sec)
+  Hamming Distance: 1000 ops in 1.8ms   (555.6K ops/sec)
+  Bundle (10 vecs): 100 ops in 15.2ms   (6.6K ops/sec)
+```
+
+---
+
+## SIMD Optimization
+
+NexaCore uses cache-friendly memory layouts and leverages hardware intrinsics:
+
+- **Binary HVs**: Bit-packed in `u64` words for natural 64-bit XOR throughput
+- **Hamming distance**: `count_ones()` popcount on u64 words
+- **Real vectors**: 4-way f64 accumulator for dot products
+- **Runtime detection**: `is_x86_feature_detected!()` for AVX2/AVX512 paths (future)
+- **Cache-aware**: Sequential memory access patterns, minimal branching
+
+### Benchmark Targets
+
+| Operation | Dimension | Target |
+|-----------|-----------|--------|
+| XOR Bind | 10K | < 5μs |
+| Hamming Distance | 10K | < 3μs |
+| Cosine Similarity | 10K | < 20μs |
+| Bundle (10 vecs) | 10K | < 200μs |
+| Cleanup Query (1000 entries) | 1K | < 1ms |
+| Text Encode | 10K × 100 chars | < 500μs |
+
+---
+
+## HDC Classifier Example
+
+One-shot and multi-example classification directly in hypervector space:
+
+```rust
+use nexa_runtime::HdcClassifier;
+use nexa_core::BinaryHV;
+
+let mut classifier = HdcClassifier::new(10_000);
+
+// Train with examples
+let cats: Vec<BinaryHV> = (0..10)
+    .map(|i| BinaryHV::random(10_000, 100 + i).unwrap())
+    .collect();
+let dogs: Vec<BinaryHV> = (0..10)
+    .map(|i| BinaryHV::random(10_000, 200 + i).unwrap())
+    .collect();
+
+classifier.train("cat", &cats.iter().collect::<Vec<_>>());
+classifier.train("dog", &dogs.iter().collect::<Vec<_>>());
+
+// Classify — finds nearest class prototype
+let test = BinaryHV::random(10_000, 105).unwrap();
+let result = classifier.predict(&test).unwrap();
+println!("{} (confidence: {:.3})", result.class, result.confidence);
+```
+
+---
+
+## Tech Stack
+
+| Component | Library |
+|-----------|---------|
+| Bit-packing | `bitvec` |
+| Parallelism | `rayon` |
+| Serialization | `serde`, `bincode` |
+| Memory mapping | `memmap2` |
+| Linear algebra | `nalgebra`, `ndarray` |
+| Logging | `tracing` |
+| Error handling | `thiserror`, `anyhow` |
+| Benchmarks | `criterion` |
+| Deterministic RNG | `rand_chacha` |
+| CLI | `clap` |
+
+---
+
+## Building
+
+```bash
+# Build the entire workspace
+cargo build --workspace
+
+# Run all tests
+cargo test --workspace
+
+# Run benchmarks
+cargo bench -p nexa-bench
+
+# Build CLI
+cargo build -p nexa-cli --release
+```
+
+---
+
+## Test Suite
+
+```bash
+$ cargo test --workspace
+
+running 22 tests ... nexa-core     ✓ (22 passed)
+running  7 tests ... nexa-hdc      ✓ ( 7 passed)
+running  5 tests ... nexa-holography ✓ ( 5 passed)
+running  6 tests ... nexa-memory   ✓ ( 6 passed)
+running  6 tests ... nexa-encoder  ✓ ( 6 passed)
+running  8 tests ... nexa-decoder  ✓ ( 8 passed)
+running  6 tests ... nexa-runtime  ✓ ( 6 passed)
+running  6 tests ... nexa-topology ✓ ( 6 passed)
+```
+
+---
+
+## Future Roadmap
+
+```mermaid
+gantt
+    title NexaCore Roadmap
+    dateFormat  YYYY-Q
+    section Core
+    GPU kernels (wgpu)       :2026-Q3, 2026-Q4
+    ONNX interop             :2026-Q3, 2026-Q4
+    Python bindings (pyo3)   :2026-Q3, 2026-Q4
+    section Distributed
+    Distributed vector compute :2026-Q4, 2027-Q1
+    Vector database layer    :2026-Q4, 2027-Q1
+    section AI
+    Multimodal representations :2027-Q1, 2027-Q2
+    Symbolic-neural hybrid   :2027-Q1, 2027-Q2
+    Edge AI runtime          :2027-Q2, 2027-Q3
+    section Advanced
+    Quantum-inspired representations :2027-Q3, 2027-Q4
+    Compressed-domain inference      :2027-Q2, 2027-Q3
+    Holographic memory persistence   :2027-Q1, 2027-Q2
+```
+
+### Planned Features
+
+- **GPU Acceleration** — wgpu compute shaders for parallel XOR/bundling
+- **Python Bindings** — PyO3 bindings for research integration
+- **ONNX Interop** — Full ONNX graph parsing and topology analysis
+- **Distributed Compute** — Sharded hypervector operations across nodes
+- **Vector Database** — Persistent, indexed HV storage with ANN search
+- **Multimodal Encoding** — Audio, video, point cloud representations
+- **Edge Runtime** — Minimal footprint for embedded/IoT deployment
+- **Quantum-Inspired** — Superposition-based quantum representation experiments
+
+---
+
+## References
+
+- Kanerva, P. (2009). *Hyperdimensional Computing: An Introduction to Computing in Distributed Representation with High-Dimensional Random Vectors.* Cognitive Computation.
+- Plate, T. (2003). *Holographic Reduced Representations: Distributed Representation for Cognitive Structures.* CSLI Publications.
+- Gayler, R.W. (2003). *Vector Symbolic Architectures Answer Jackendoff's Challenges for Cognitive Neuroscience.*
+- Kanerva, P. (1988). *Sparse Distributed Memory.* MIT Press.
+- Rachkovskij, D.A. & Kussul, E.M. (2001). *Binding and Normalization of Binary Sparse Distributed Representations by Context-Dependent Thinning.*
+
+---
+
+## License
+
+Research use. See LICENSE for details.

@@ -1,5 +1,5 @@
 use serde::{Serialize, Deserialize};
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::io::{Read, Write};
 
 pub const NEXA_MAGIC: [u8; 4] = *b"NEXA";
 pub const NEXA_MAGIC_END: [u8; 4] = *b"AXEN";
@@ -97,8 +97,6 @@ impl NexaFormat {
         }
 
         // Index table offset placeholder position
-        let index_table_marker = current_offset;
-
         // Index table
         let index_count = offsets.len() as u32;
         writer.write_all(&index_count.to_le_bytes())?;
