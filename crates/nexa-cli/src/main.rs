@@ -38,7 +38,7 @@ enum Commands {
         #[arg(short, long, default_value_t = 10000)]
         dim: usize,
     },
-    /// Attempt recovery of a corrupted .nexa file
+    /// Recover a corrupted .nexa file
     Recover {
         input: String,
         #[arg(short, long)]
@@ -179,7 +179,7 @@ fn cmd_decode(input: &str, output: Option<&str>) -> Result<()> {
     println!("  Metadata:   {}", truncate_str(&header.metadata, 200));
 
     if let Some(out_path) = output {
-        // Attempt to extract original data from metadata records
+        // Extract original data from metadata records
         if !header.metadata.is_empty() {
             if let Ok(records) =
                 serde_json::from_str::<Vec<nexa_encoder::EncodingRecord>>(&header.metadata)
@@ -316,7 +316,7 @@ fn cmd_recover(input: &str, output: Option<&str>) -> Result<()> {
             println!("  Status:     ✗ Corruption detected");
             println!("  Error:      {e}");
 
-            // Attempt partial recovery by reading raw file
+            // Perform partial recovery by reading raw file
             let raw = std::fs::read(input).with_context(|| format!("Cannot read {input}"))?;
             let magic_ok = raw.len() >= 4 && &raw[0..4] == b"NEXA";
             println!(

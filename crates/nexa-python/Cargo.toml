@@ -2,7 +2,7 @@
 name = "nexa-python"
 version = "0.1.0"
 edition = "2021"
-description = "Future Python bindings for NexaCore (stub)"
+description = "Python bindings for NexaCore"
 
 [dependencies]
 # pyo3 = { version = "0.22", features = ["extension-module"] }

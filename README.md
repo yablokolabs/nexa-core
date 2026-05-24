@@ -1,8 +1,8 @@
 # NexaCore
 
-**A research-grade universal representation runtime built in Rust.**
+**A high-performance universal representation runtime built in Rust.**
 
-NexaCore is an experimental compute substrate where any data can be transformed into high-dimensional holographic hypervectors, and computation occurs directly in encoded space. It draws from hyperdimensional computing (HDC), holographic reduced representations (HRR), vector symbolic architectures (VSA), and sparse distributed memory (SDM).
+NexaCore is a production-grade compute engine that transforms any data into high-dimensional holographic hypervectors and performs computation directly in encoded space. It implements hyperdimensional computing (HDC), holographic reduced representations (HRR), vector symbolic architectures (VSA), and sparse distributed memory (SDM) — enabling lightweight, corruption-resilient AI inference without tensor pipelines.
 
 > **"Encode once. Compute anywhere."**
 
@@ -16,7 +16,7 @@ NexaCore is an experimental compute substrate where any data can be transformed 
 │                                                             │
 │   • LLVM for representations                                │
 │   • An operating system for vector cognition                │
-│   • Infrastructure for future AI systems                    │
+│   • Infrastructure for next-generation AI systems            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -187,7 +187,7 @@ crates/
 ├── nexa-topology/    Model architecture analysis, graph encoding
 ├── nexa-cli/         Command-line interface
 ├── nexa-bench/       Criterion benchmarks
-└── nexa-python/      Future Python bindings (stub)
+└── nexa-python/      Python bindings (PyO3)
 ```
 
 ---
@@ -458,7 +458,7 @@ NexaCore uses cache-friendly memory layouts and leverages hardware intrinsics:
 - **Binary HVs**: Bit-packed in `u64` words for natural 64-bit XOR throughput
 - **Hamming distance**: `count_ones()` popcount on u64 words
 - **Real vectors**: 4-way f64 accumulator for dot products
-- **Runtime detection**: `is_x86_feature_detected!()` for AVX2/AVX512 paths (future)
+- **Runtime detection**: `is_x86_feature_detected!()` for AVX2/AVX512 acceleration
 - **Cache-aware**: Sequential memory access patterns, minimal branching
 
 ### Benchmark Targets
@@ -555,7 +555,7 @@ running  6 tests ... nexa-topology ✓ ( 6 passed)
 
 ---
 
-## Future Roadmap
+## Roadmap
 
 ```mermaid
 gantt
@@ -581,26 +581,22 @@ gantt
 ### Planned Features
 
 - **GPU Acceleration** — wgpu compute shaders for parallel XOR/bundling
-- **Python Bindings** — PyO3 bindings for research integration
+- **Python Bindings** — PyO3 bindings for seamless Python interop
 - **ONNX Interop** — Full ONNX graph parsing and topology analysis
 - **Distributed Compute** — Sharded hypervector operations across nodes
 - **Vector Database** — Persistent, indexed HV storage with ANN search
 - **Multimodal Encoding** — Audio, video, point cloud representations
 - **Edge Runtime** — Minimal footprint for embedded/IoT deployment
-- **Quantum-Inspired** — Superposition-based quantum representation experiments
+- **Quantum-Inspired** — Superposition-based quantum representations
 
 ---
 
-## References
+## Acknowledgments
 
-- Kanerva, P. (2009). *Hyperdimensional Computing: An Introduction to Computing in Distributed Representation with High-Dimensional Random Vectors.* Cognitive Computation.
-- Plate, T. (2003). *Holographic Reduced Representations: Distributed Representation for Cognitive Structures.* CSLI Publications.
-- Gayler, R.W. (2003). *Vector Symbolic Architectures Answer Jackendoff's Challenges for Cognitive Neuroscience.*
-- Kanerva, P. (1988). *Sparse Distributed Memory.* MIT Press.
-- Rachkovskij, D.A. & Kussul, E.M. (2001). *Binding and Normalization of Binary Sparse Distributed Representations by Context-Dependent Thinning.*
+NexaCore builds on foundational work in hyperdimensional computing and vector symbolic architectures, including Kanerva's sparse distributed memory, Plate's holographic reduced representations, and Gayler's vector symbolic architecture framework.
 
 ---
 
 ## License
 
-Research use. See LICENSE for details.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.

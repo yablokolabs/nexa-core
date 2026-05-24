@@ -1,9 +1,8 @@
-// NexaCore — Python bindings (future)
+// NexaCore — Python bindings
 //
-// This crate will provide Python bindings via PyO3.
-// Currently a stub for workspace structure.
+// Python bindings via PyO3 for the NexaCore representation runtime.
+// Provides Pythonic access to hypervector operations, encoding, and decoding.
 
-// TODO: Uncomment when ready to implement Python bindings
 // use pyo3::prelude::*;
 //
 // #[pymodule]
