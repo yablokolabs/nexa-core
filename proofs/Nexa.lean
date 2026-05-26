@@ -7,3 +7,4 @@ import Nexa.Decoding
 import Nexa.CleanupMemory
 import Nexa.Homomorphism
 import Nexa.RecoveryBounds
+import Nexa.Encryption

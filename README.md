@@ -1143,7 +1143,8 @@ flowchart TD
 | **CleanupMemory** | 2 | Exact self-cleanup, XOR corruption reversibility |
 | **Homomorphism** | 3 | Zero preservation, unbinding in transformed space, non-homomorphism witness |
 | **RecoveryBounds** | 3 | Known corruption recovery, distance = noise weight, corruption triangle |
-| **Total** | **23** | — |
+| **Encryption** | 4 | Encrypt/decrypt roundtrip, self-inverse, double-key cancellation, distance preservation |
+| **Total** | **27** | — |
 
 ### Running Verification
 
@@ -1161,7 +1162,7 @@ cd proofs && lake build
 NexaCore Formal Verification Report
 ═══════════════════════════════════
 
-Status: ✓ ALL 23 THEOREMS VERIFIED
+Status: ✓ ALL 27 THEOREMS VERIFIED
 
   Nexa.Binding
     ✓ bind_comm: ∀ a b, bind(a, b) = bind(b, a)
@@ -1194,6 +1195,11 @@ Status: ✓ ALL 23 THEOREMS VERIFIED
     ✓ known_corruption_recovery: ∀ v noise, (v ⊕ noise) ⊕ noise = v
     ✓ corruption_distance_equals_noise_weight: ∀ v noise, d(v, v⊕noise) = popcount(noise)
     ✓ corruption_triangle: ∀ v n₁ n₂, d(v⊕n₁, v⊕n₂) = popcount(n₁⊕n₂)
+  Nexa.Encryption
+    ✓ encrypt_decrypt_roundtrip: ∀ v key, decrypt(encrypt(v, key), key) = v
+    ✓ encrypt_self_inverse: ∀ v key, encrypt(encrypt(v, key), key) = v
+    ✓ double_encrypt_decrypt: ∀ v k₁ k₂, decrypt(k₁, decrypt(k₂, encrypt(k₂, encrypt(k₁, v)))) = v
+    ✓ encrypt_preserves_distance: ∀ a b key, d(encrypt(a,key), encrypt(b,key)) = d(a,b)
 ```
 
 ### Architecture

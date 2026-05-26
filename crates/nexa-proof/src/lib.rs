@@ -155,6 +155,27 @@ pub fn theorem_manifest() -> Vec<Theorem> {
             name: "corruption_triangle".into(),
             statement: "∀ v n₁ n₂, d(v⊕n₁, v⊕n₂) = popcount(n₁⊕n₂)".into(),
         },
+        // Encryption (NexaCrypto)
+        Theorem {
+            module: "Nexa.Encryption".into(),
+            name: "encrypt_decrypt_roundtrip".into(),
+            statement: "∀ v key, decrypt(encrypt(v, key), key) = v".into(),
+        },
+        Theorem {
+            module: "Nexa.Encryption".into(),
+            name: "encrypt_self_inverse".into(),
+            statement: "∀ v key, encrypt(encrypt(v, key), key) = v".into(),
+        },
+        Theorem {
+            module: "Nexa.Encryption".into(),
+            name: "double_encrypt_decrypt".into(),
+            statement: "∀ v k₁ k₂, decrypt(k₁, decrypt(k₂, encrypt(k₂, encrypt(k₁, v)))) = v".into(),
+        },
+        Theorem {
+            module: "Nexa.Encryption".into(),
+            name: "encrypt_preserves_distance".into(),
+            statement: "∀ a b key, d(encrypt(a,key), encrypt(b,key)) = d(a,b)".into(),
+        },
     ]
 }
 
