@@ -1,0 +1,18 @@
+[package]
+name = "nexa-forge"
+version = "0.1.0"
+edition = "2021"
+description = "NexaForge — universal model wrapping engine for encoded-space inference"
+
+[dependencies]
+nexa-core = { workspace = true }
+nexa-hdc = { workspace = true }
+nexa-holography = { workspace = true }
+nexa-topology = { workspace = true }
+nexa-runtime = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

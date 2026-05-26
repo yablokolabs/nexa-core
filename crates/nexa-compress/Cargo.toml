@@ -1,0 +1,13 @@
+[package]
+name = "nexa-compress"
+version = "0.1.0"
+edition = "2021"
+description = "NexaCompress — lossless compression for hypervector data and .nexa files"
+
+[dependencies]
+nexa-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+flate2 = "1"

@@ -9,6 +9,8 @@ members = [
     "crates/nexa-encoder",
     "crates/nexa-decoder",
     "crates/nexa-topology",
+    "crates/nexa-compress",
+    "crates/nexa-forge",
     "crates/nexa-cli",
     "crates/nexa-bench",
     "crates/nexa-python",
@@ -45,6 +47,9 @@ csv = "1"
 # Testing
 criterion = { version = "0.5", features = ["html_reports"] }
 
+# Compression
+flate2 = "1"
+
 # Internal crates
 nexa-core = { path = "crates/nexa-core" }
 nexa-hdc = { path = "crates/nexa-hdc" }
@@ -54,4 +59,6 @@ nexa-memory = { path = "crates/nexa-memory" }
 nexa-encoder = { path = "crates/nexa-encoder" }
 nexa-decoder = { path = "crates/nexa-decoder" }
 nexa-topology = { path = "crates/nexa-topology" }
+nexa-compress = { path = "crates/nexa-compress" }
+nexa-forge = { path = "crates/nexa-forge" }
 nexa-proof = { path = "crates/nexa-proof" }

@@ -48,6 +48,36 @@ enum Commands {
     Topology { input: String },
     /// Verify formal proofs (requires Lean 4 / lake)
     Verify,
+    /// Compress a .nexa file (NexaCompress)
+    Compress {
+        input: String,
+        #[arg(short, long, default_value = "compressed.nexc")]
+        output: String,
+        #[arg(short, long, default_value = "auto")]
+        strategy: String,
+    },
+    /// Decompress a compressed .nexc file back to .nexa
+    Decompress {
+        input: String,
+        #[arg(short, long, default_value = "decompressed.nexa")]
+        output: String,
+    },
+    /// Forge a model for encoded-space inference (NexaForge)
+    Forge {
+        /// Model definition JSON file
+        input: String,
+        #[arg(short, long, default_value_t = 10000)]
+        dim: usize,
+    },
+    /// Run inference on encoded data with a forged model (NexaForge)
+    ForgePredict {
+        /// Model definition JSON file
+        model: String,
+        /// .nexa encoded input file
+        input: String,
+        #[arg(short, long, default_value_t = 10000)]
+        dim: usize,
+    },
 }
 
 fn main() {
@@ -71,6 +101,10 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Recover { input, output } => cmd_recover(&input, output.as_deref()),
         Commands::Topology { input } => cmd_topology(&input),
         Commands::Verify => cmd_verify(),
+        Commands::Compress { input, output, strategy } => cmd_compress(&input, &output, &strategy),
+        Commands::Decompress { input, output } => cmd_decompress(&input, &output),
+        Commands::Forge { input, dim } => cmd_forge(&input, dim),
+        Commands::ForgePredict { model, input, dim } => cmd_forge_predict(&model, &input, dim),
     }
 }
 
@@ -384,4 +418,105 @@ fn cmd_verify() -> Result<()> {
     } else {
         anyhow::bail!("Formal verification failed")
     }
+}
+
+// ---------------------------------------------------------------------------
+// NexaCompress commands
+// ---------------------------------------------------------------------------
+
+fn cmd_compress(input: &str, output: &str, strategy_str: &str) -> Result<()> {
+    let strategy = nexa_compress::Strategy::from_str_loose(strategy_str);
+
+    let stats = nexa_compress::compress_nexa_file(
+        Path::new(input),
+        Path::new(output),
+        strategy,
+    )
+    .with_context(|| format!("Failed to compress {input}"))?;
+
+    println!("NexaCompress");
+    println!("  Input:      {input} ({} bytes)", stats.original_size);
+    println!("  Output:     {output} ({} bytes)", stats.compressed_size);
+    println!("  Strategy:   {}", stats.strategy);
+    println!("  Ratio:      {:.2}x", stats.ratio);
+    println!("  Bits/byte:  {:.3}", stats.bits_per_byte);
+    println!("  Time:       {:.1}ms", stats.duration_ms);
+    println!("  Status:     ✓ Compressed successfully");
+    Ok(())
+}
+
+fn cmd_decompress(input: &str, output: &str) -> Result<()> {
+    nexa_compress::decompress_nexa_file(Path::new(input), Path::new(output))
+        .with_context(|| format!("Failed to decompress {input}"))?;
+
+    let out_size = std::fs::metadata(output)
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    println!("NexaCompress Decompressor");
+    println!("  Input:      {input}");
+    println!("  Output:     {output} ({out_size} bytes)");
+    println!("  Status:     ✓ Decompressed successfully");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// NexaForge commands
+// ---------------------------------------------------------------------------
+
+fn cmd_forge(input: &str, dim: usize) -> Result<()> {
+    let json_str =
+        std::fs::read_to_string(input).with_context(|| format!("Cannot read {input}"))?;
+
+    let definition = nexa_forge::ModelDefinition::from_json(&json_str)
+        .context("Failed to parse model definition")?;
+
+    let config = nexa_forge::ForgeConfig {
+        dim,
+        seed: 42,
+        bipolar_projection: true,
+    };
+
+    let (_model, report) = nexa_forge::ForgeEngine::forge(&definition, &config)
+        .context("Failed to forge model")?;
+
+    println!("{report}");
+    println!("  Status:     ✓ Model forged successfully");
+    Ok(())
+}
+
+fn cmd_forge_predict(model_path: &str, input_path: &str, dim: usize) -> Result<()> {
+    // Load model definition
+    let model_json = std::fs::read_to_string(model_path)
+        .with_context(|| format!("Cannot read model {model_path}"))?;
+    let definition = nexa_forge::ModelDefinition::from_json(&model_json)
+        .context("Failed to parse model definition")?;
+
+    let config = nexa_forge::ForgeConfig {
+        dim,
+        seed: 42,
+        bipolar_projection: true,
+    };
+
+    let (model, _) = nexa_forge::ForgeEngine::forge(&definition, &config)
+        .context("Failed to forge model")?;
+
+    // Load encoded input
+    let (header, vectors) =
+        read_nexa_file(Path::new(input_path)).with_context(|| format!("Cannot read {input_path}"))?;
+    anyhow::ensure!(!vectors.is_empty(), "{input_path} contains no vectors");
+
+    let input_hv = raw_to_hv(&vectors[0], header.dimension as usize)?;
+    let predictions = model
+        .predict(&input_hv)
+        .context("Prediction failed")?;
+
+    println!("NexaForge Prediction");
+    println!("  Model:      {model_path}");
+    println!("  Input:      {input_path} (dim={})", header.dimension);
+    println!("  Results:");
+    for (i, (class, score)) in predictions.iter().enumerate().take(10) {
+        println!("    {}: {class} ({score:.4})", i + 1);
+    }
+    Ok(())
 }

@@ -17,6 +17,8 @@ nexa-encoder = { workspace = true }
 nexa-decoder = { workspace = true }
 nexa-runtime = { workspace = true }
 nexa-topology = { workspace = true }
+nexa-compress = { workspace = true }
+nexa-forge = { workspace = true }
 nexa-proof = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }

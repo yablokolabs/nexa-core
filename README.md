@@ -28,6 +28,10 @@ NexaCore is a production-grade compute engine that transforms any data into high
 flowchart LR
     RawData["Raw Data"] --> Encoder["NexaEncoder"]
     Encoder --> HVS["Hypervector Space<br/>(10K+ dimensions)"]
+    HVS --> Compress["NexaCompress"]
+    Compress --> Stored[".nexa / .nexc Files"]
+    Stored --> Decompress["NexaCompress<br/>Decompress"]
+    Decompress --> HVS
     HVS --> Runtime["NexaRuntime"]
     Runtime --> Decoder["NexaDecoder"]
     Decoder --> Recovered["Recovered Data"]
@@ -36,6 +40,11 @@ flowchart LR
     HVS --> Cleanup["Cleanup Memory"]
     HVS --> Search["Similarity Search"]
     HVS --> Classify["HDC Classifier"]
+
+    ModelDef["Model Definition"] --> Forge["NexaForge"]
+    Forge --> ForgedModel["Forged Model"]
+    ForgedModel --> Predict["Predict on HV Input"]
+    HVS --> Predict
 ```
 
 ```mermaid
@@ -185,6 +194,8 @@ crates/
 ├── nexa-decoder/     Exact/approximate/cleanup/symbolic decoders
 ├── nexa-runtime/     Classifiers, search, anomaly detection, clustering
 ├── nexa-topology/    Model architecture analysis, graph encoding
+├── nexa-compress/    NexaCompress — lossless compression for HV data
+├── nexa-forge/       NexaForge — universal model wrapping engine
 ├── nexa-proof/       Formal verification bridge (Lean 4 → Rust)
 ├── nexa-cli/         Command-line interface
 ├── nexa-bench/       Criterion benchmarks
@@ -322,6 +333,207 @@ println!("Architecture similarity: {:.3}", sim);
 
 ---
 
+## NexaCompress
+
+Lossless compression engine for `.nexa` files and hypervector data. Multiple strategies optimised for binary hypervectors:
+
+| Strategy | Description | Best for |
+|----------|-------------|----------|
+| **Deflate** | General-purpose zlib compression | All data types |
+| **Delta** | XOR successive vectors → compress low-entropy deltas | Batches of related vectors |
+| **MetadataStrip** | Remove redundant `original_data` from records + deflate | Reducing metadata bloat |
+| **Auto** | Try all strategies, keep the smallest | Default — always picks the best |
+
+```mermaid
+flowchart LR
+    NexaFile[".nexa File"] --> Strategy["Strategy Selection"]
+    Strategy --> Deflate["Deflate<br/>(zlib)"]
+    Strategy --> Delta["Delta Encode<br/>(XOR + Deflate)"]
+    Strategy --> Strip["Metadata Strip<br/>(+ Deflate)"]
+    Strategy --> Auto["Auto<br/>(try all, pick best)"]
+    Deflate --> NEXC[".nexc Compressed"]
+    Delta --> NEXC
+    Strip --> NEXC
+    Auto --> NEXC
+    NEXC --> Decompress["Decompress"]
+    Decompress --> Restored[".nexa Restored"]
+```
+
+### Rust API
+
+```rust
+use nexa_compress::*;
+
+// Compress raw bytes
+let data = b"hello nexacore compression test!";
+let compressed = compress(data, Strategy::Deflate)?;
+let restored = decompress(&compressed)?;
+assert_eq!(restored, data);
+
+// Delta-encode a batch of similar vectors
+let vectors = vec![vec![0u8; 1250], vec![1u8; 1250], vec![2u8; 1250]];
+let cd = compress_vectors(&vectors, Strategy::Delta)?;
+let recovered = decompress_vectors(&cd)?;
+assert_eq!(recovered, vectors);
+
+// Compress a .nexa file (auto picks best strategy)
+let stats = compress_nexa_file(
+    Path::new("encoded.nexa"),
+    Path::new("encoded.nexc"),
+    Strategy::Auto,
+)?;
+println!("{}", stats);
+// Strategy: delta
+//   Original:   12580 bytes
+//   Compressed: 3421 bytes
+//   Ratio:      3.68x
+//   Bits/byte:  2.175
+//   Time:       1.2ms
+
+// Decompress back to .nexa
+decompress_nexa_file(
+    Path::new("encoded.nexc"),
+    Path::new("restored.nexa"),
+)?;
+```
+
+### CLI Usage
+
+```bash
+# Compress a .nexa file (auto strategy)
+nexa compress encoded.nexa -o compressed.nexc
+
+# Compress with a specific strategy
+nexa compress encoded.nexa -o compressed.nexc --strategy delta
+
+# Decompress back to .nexa
+nexa decompress compressed.nexc -o restored.nexa
+```
+
+---
+
+## NexaForge
+
+Universal model wrapping engine that translates neural network models to operate directly on hypervector-encoded data **without retraining**.
+
+```mermaid
+flowchart TD
+    ModelDef["Model Definition<br/>(topology + weights)"] --> ForgeEngine["ForgeEngine"]
+    ForgeEngine --> |"1. Analyze topology"| Analyze["Layer Analysis"]
+    ForgeEngine --> |"2. Project weights"| Project["Random Projection<br/>into HV Space"]
+    ForgeEngine --> |"3. Translate layers"| Translate["Layer Translation"]
+
+    Translate --> Dense["Dense → HV Dot Product"]
+    Translate --> ReLU["ReLU → Threshold"]
+    Translate --> Softmax["Softmax → Normalized Similarity"]
+    Translate --> BN["BatchNorm → L2 Normalize"]
+
+    Project --> ForgedModel["ForgedModel"]
+    Translate --> ForgedModel
+    ForgedModel --> Predict["predict(BinaryHV) → (class, score)"]
+    ForgedModel --> Forward["forward(BinaryHV) → BinaryHV"]
+```
+
+### Layer Translation Table
+
+| Original Layer | HV Translation | How It Works |
+|----------------|----------------|-------------|
+| **Dense** (fully connected) | HV dot product | Weight rows projected into HV space via Rademacher ±1 random projection |
+| **ReLU** | Element-wise threshold | Values > 0 pass through, else 0 |
+| **Sigmoid** | Scaled mapping | `1 / (1 + exp(-x))` in real-valued HV space |
+| **Softmax** | Normalized exponents | Standard softmax on HV-space activations |
+| **BatchNorm** | L2 normalisation | Normalise real-valued vector to unit length |
+| **Dropout** | Identity | No-op at inference time |
+| **Flatten** | Passthrough | HVs are already flat vectors |
+
+### Rust API
+
+```rust
+use nexa_forge::*;
+
+// Define a simple MLP: 784 → 128 → 10
+let def = ModelDefinition::simple_mlp("digit_classifier", &[784, 128, 10], "relu");
+
+// Or define manually with custom weights
+let def = ModelDefinition {
+    graph: my_model_graph,
+    weights: hashmap! {
+        "dense_0" => WeightMatrix::new(128, 784, trained_weights_0),
+        "dense_1" => WeightMatrix::new(10, 128, trained_weights_1),
+    },
+    biases: hashmap! {
+        "dense_0" => BiasVector { data: bias_0 },
+        "dense_1" => BiasVector { data: bias_1 },
+    },
+    class_labels: vec!["0".into(), "1".into(), /* ... */ "9".into()],
+};
+
+// Forge the model
+let config = ForgeConfig {
+    dim: 10_000,
+    seed: 42,
+    bipolar_projection: true,
+};
+
+let (forged_model, report) = ForgeEngine::forge(&def, &config)?;
+println!("{}", report);
+// NexaForge Report
+//   Model:             MLP
+//   Original layers:   3
+//   Forged layers:     4
+//   HV dimension:      10000
+//   Total weights:     101770
+//   Projected weights: 1380000
+//   Classes:           10
+//   Forge time:        45.2ms
+
+// Run inference on encoded data
+let predictions = forged_model.predict(&encoded_input)?;
+for (class, score) in &predictions {
+    println!("{class}: {score:.4}");
+}
+// class_3: 0.2841
+// class_7: 0.1523
+// class_1: 0.1102
+// ...
+```
+
+### CLI Usage
+
+```bash
+# Forge a model from a JSON definition
+nexa forge model_definition.json --dim 10000
+
+# Run prediction on encoded data
+nexa forge-predict model_definition.json encoded_input.nexa --dim 10000
+```
+
+### JSON Model Definition Format
+
+```json
+{
+  "graph": {
+    "name": "MLP",
+    "layers": [
+      {"id": 0, "name": "input", "layer_type": {"Input": {"shape": [784]}}, "connections": []},
+      {"id": 1, "name": "dense_0", "layer_type": {"Dense": {"units": 128, "activation": "relu"}}, "connections": [2]},
+      {"id": 2, "name": "dense_1", "layer_type": {"Dense": {"units": 10, "activation": "linear"}}, "connections": []}
+    ]
+  },
+  "weights": {
+    "dense_0": {"rows": 128, "cols": 784, "data": [0.01, -0.02, ...]},
+    "dense_1": {"rows": 10, "cols": 128, "data": [0.03, 0.01, ...]}
+  },
+  "biases": {
+    "dense_0": {"data": [0.0, 0.0, ...]},
+    "dense_1": {"data": [0.0, 0.0, ...]}
+  },
+  "class_labels": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+}
+```
+
+---
+
 ## .nexa File Format
 
 Memory-mappable binary format for persistent hypervector storage:
@@ -367,6 +579,18 @@ nexa benchmark --dim 10000
 
 # Encode model topology
 nexa topology model.json
+
+# Compress a .nexa file (NexaCompress)
+nexa compress encoded.nexa -o compressed.nexc --strategy auto
+
+# Decompress back to .nexa
+nexa decompress compressed.nexc -o restored.nexa
+
+# Forge a model for encoded-space inference (NexaForge)
+nexa forge model_definition.json --dim 10000
+
+# Run inference with a forged model
+nexa forge-predict model_definition.json encoded_input.nexa --dim 10000
 ```
 
 ### Example: Encode and Inspect
@@ -414,6 +638,11 @@ NexaCore ships as an [MCP](https://modelcontextprotocol.io/) server, letting any
 | `benchmark` | Run XOR/Hamming/bundle throughput benchmarks |
 | `topology` | Encode neural network architecture into HV space |
 | `encode_and_inspect` | Encode data and inspect the result in one call |
+| `compress` | Compress a `.nexa` file using NexaCompress |
+| `decompress` | Decompress a `.nexc` file back to `.nexa` |
+| `compress_content` | Encode + compress in one step with stats |
+| `forge` | Forge a model for encoded-space inference |
+| `forge_predict` | Run inference on content using a forged model |
 
 ### Running Locally
 
@@ -558,14 +787,16 @@ cargo build -p nexa-cli --release
 ```bash
 $ cargo test --workspace
 
-running 22 tests ... nexa-core     ✓ (22 passed)
-running  7 tests ... nexa-hdc      ✓ ( 7 passed)
+running 22 tests ... nexa-core       ✓ (22 passed)
+running  7 tests ... nexa-hdc        ✓ ( 7 passed)
 running  5 tests ... nexa-holography ✓ ( 5 passed)
-running  6 tests ... nexa-memory   ✓ ( 6 passed)
-running  6 tests ... nexa-encoder  ✓ ( 6 passed)
-running  8 tests ... nexa-decoder  ✓ ( 8 passed)
-running  6 tests ... nexa-runtime  ✓ ( 6 passed)
-running  6 tests ... nexa-topology ✓ ( 6 passed)
+running  6 tests ... nexa-memory     ✓ ( 6 passed)
+running  6 tests ... nexa-encoder    ✓ ( 6 passed)
+running  8 tests ... nexa-decoder    ✓ ( 8 passed)
+running  6 tests ... nexa-runtime    ✓ ( 6 passed)
+running  6 tests ... nexa-topology   ✓ ( 6 passed)
+running  7 tests ... nexa-compress   ✓ ( 7 passed)
+running 10 tests ... nexa-forge      ✓ (10 passed)
 ```
 
 ---
@@ -684,6 +915,8 @@ gantt
     title NexaCore Roadmap
     dateFormat YYYY-MM-DD
     section Core
+    NexaCompress (lossless)  :done, 2026-05-01, 2026-05-26
+    NexaForge (model wrap)   :done, 2026-05-01, 2026-05-26
     GPU kernels (wgpu)       :2026-07-01, 2026-12-31
     ONNX interop             :2026-07-01, 2026-12-31
     Python bindings (pyo3)   :2026-07-01, 2026-12-31
@@ -691,6 +924,8 @@ gantt
     Distributed vector compute :2026-10-01, 2027-03-31
     Vector database layer    :2026-10-01, 2027-03-31
     section AI
+    Conv2d/Pooling forge     :2026-07-01, 2026-09-30
+    Image/audio encoding     :2026-07-01, 2026-12-31
     Multimodal representations :2027-01-01, 2027-06-30
     Symbolic-neural hybrid   :2027-01-01, 2027-06-30
     Edge AI runtime          :2027-04-01, 2027-09-30
@@ -704,10 +939,11 @@ gantt
 
 - **GPU Acceleration** — wgpu compute shaders for parallel XOR/bundling
 - **Python Bindings** — PyO3 bindings for seamless Python interop
-- **ONNX Interop** — Full ONNX graph parsing and topology analysis
+- **ONNX Interop** — Full ONNX graph parsing for NexaForge model import
+- **Conv2d / Pooling Translation** — NexaForge support for CNN layers
+- **Image / Audio Encoding** — Direct image and audio → HV encoding
 - **Distributed Compute** — Sharded hypervector operations across nodes
 - **Vector Database** — Persistent, indexed HV storage with ANN search
-- **Multimodal Encoding** — Audio, video, point cloud representations
 - **Edge Runtime** — Minimal footprint for embedded/IoT deployment
 - **Quantum-Inspired** — Superposition-based quantum representations
 
