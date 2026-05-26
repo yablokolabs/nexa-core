@@ -688,8 +688,9 @@ flowchart LR
     NexaBin --> HVS["Hypervector Space"]
 ```
 
-### Example: MCP Tool Call
+### Example: MCP Tool Calls
 
+**Encode text:**
 ```json
 {
   "tool": "encode",
@@ -701,17 +702,90 @@ flowchart LR
 }
 ```
 
-Response:
-
+**Encode an image:**
+```json
+{
+  "tool": "encode_image",
+  "arguments": {
+    "image_path": "/data/digit.raw",
+    "width": 28,
+    "height": 28,
+    "dim": 10000
+  }
+}
 ```
-NexaCore Encoder
-  Input:     input.txt (43 bytes)
-  Type:      Text
-  Dimension: 10000
-  Output:    encoded.nexa
-  Status:    ✓ Encoded successfully
 
-Encoded file size: 1538 bytes
+**Encode audio:**
+```json
+{
+  "tool": "encode_audio",
+  "arguments": {
+    "audio_path": "/data/clip.raw",
+    "frame_size": 256,
+    "dim": 10000
+  }
+}
+```
+
+**Compress content (encode + compress in one step):**
+```json
+{
+  "tool": "compress_content",
+  "arguments": {
+    "content": "some text to encode and compress",
+    "strategy": "auto",
+    "dim": 10000
+  }
+}
+```
+
+**Encrypt content:**
+```json
+{
+  "tool": "encrypt",
+  "arguments": {
+    "content": "sensitive data to encrypt",
+    "seed": 42,
+    "dim": 10000
+  }
+}
+```
+
+**Forge a model from ONNX:**
+```json
+{
+  "tool": "forge_onnx",
+  "arguments": {
+    "onnx_json": "{\"graph\":{\"node\":[{\"op_type\":\"Gemm\",\"name\":\"fc1\",\"input\":[\"x\",\"W\"],\"output\":[\"y\"]}],\"initializer\":[{\"name\":\"W\",\"dims\":[10,784],\"float_data\":[0.1,0.2]}]}}",
+    "labels": "0,1,2,3,4,5,6,7,8,9",
+    "dim": 10000
+  }
+}
+```
+
+**Train and evaluate a classifier:**
+```json
+{
+  "tool": "train_and_evaluate",
+  "arguments": {
+    "train_dir": "/data/train",
+    "test_dir": "/data/test",
+    "dim": 10000,
+    "retrain_epochs": 5
+  }
+}
+```
+
+**Forge and predict:**
+```json
+{
+  "tool": "forge_predict",
+  "arguments": {
+    "model_json": "{\"name\":\"mnist\",\"input_dim\":784,\"output_labels\":[\"0\",\"1\"],\"layers\":[{\"kind\":\"Dense\",\"input_dim\":784,\"output_dim\":10}]}",
+    "content": "pixel data to classify",
+    "dim": 10000
+  }
+}
 ```
 
 ---
