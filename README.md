@@ -6,6 +6,25 @@ NexaCore is a production-grade compute engine that transforms any data into high
 
 > **"Encode once. Compute anywhere."**
 
+### Stack at a Glance
+
+| Layer | Component | What It Does |
+|-------|-----------|-------------|
+| **Encoding** | NexaEncoder | Text, JSON, CSV, binary, image, audio, sensor → HV |
+| **Decoding** | NexaDecoder | Exact, approximate, cleanup, symbolic recovery |
+| **Compression** | NexaCompress | Lossless HV compression (deflate, delta, auto) |
+| **Model Forge** | NexaForge | Neural net → HV space (Dense, Conv2d, Pooling, ONNX) |
+| **Encryption** | NexaCrypto | Seed-based XOR encryption (ChaCha8 PRNG) |
+| **Search** | VectorSearch + LSH | Brute-force + locality-sensitive hashing ANN |
+| **Classification** | HDC + k-NN | Prototype-based and nearest-neighbor classifiers |
+| **Training** | TrainingPipeline | Encode → train → evaluate with iterative retraining |
+| **Ensemble** | EnsembleEvaluator | All 2^N-1 classifier combinations, majority vote |
+| **Memory** | Holographic + SDM | Associative recall, cleanup memory, attractors |
+| **SIMD** | AVX2 / AVX | Hardware-accelerated XOR, Hamming, dot product |
+| **Verification** | Lean 4 Proofs | 27 machine-checked theorems on core algebra |
+| **Interface** | CLI + MCP + Python | 16 CLI commands, 16 MCP tools, PyO3 bindings |
+| **Deployment** | Docker + MCPize | Container build, MCP server deployment |
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        NexaCore                             │
