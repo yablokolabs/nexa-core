@@ -192,7 +192,7 @@ assert!(result.similarity > 0.85);
 
 ```
 crates/
-├── nexa-core/        Core hypervector engine, AVX2/NEON SIMD ops, .nexa format
+├── nexa-core/        Core hypervector engine, AVX2/AVX SIMD ops, .nexa format
 ├── nexa-hdc/         HDC operations: codebooks, sequence/set encoding
 ├── nexa-holography/  Holographic reduced representations, FFT convolution
 ├── nexa-memory/      Cleanup memory, SDM, associative recall
@@ -219,7 +219,14 @@ proofs/
     ├── Decoding.lean        Decoder properties
     ├── CleanupMemory.lean   Recovery proofs
     ├── Homomorphism.lean    Structure preservation
-    └── RecoveryBounds.lean  Corruption tolerance
+    ├── RecoveryBounds.lean  Corruption tolerance
+    └── Encryption.lean      Encryption correctness
+
+mcp/
+└── server.py         MCP server (FastMCP, 16 tools)
+
+Dockerfile            Multi-stage Docker build
+mcpize.yaml           MCPize deployment config
 ```
 
 ---
