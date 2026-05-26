@@ -13,9 +13,11 @@ members = [
     "crates/nexa-forge",
     "crates/nexa-cli",
     "crates/nexa-bench",
-    "crates/nexa-python",
     "crates/nexa-proof",
 ]
+
+# nexa-python requires PyO3 and must be built separately with maturin
+exclude = ["crates/nexa-python"]
 
 [workspace.package]
 version = "0.1.0"

@@ -15,6 +15,9 @@ fn data_type_label(dt: &DataType) -> &'static str {
         DataType::Json => "json",
         DataType::Csv => "csv",
         DataType::Binary => "binary",
+        DataType::Image => "image",
+        DataType::Audio => "audio",
+        DataType::Sensor => "sensor",
     }
 }
 

@@ -26,25 +26,30 @@ NexaCore is a production-grade compute engine that transforms any data into high
 
 ```mermaid
 flowchart LR
-    RawData["Raw Data"] --> Encoder["NexaEncoder"]
+    RawData["Raw Data<br/>(Text/JSON/CSV/Image/Audio/Sensor)"] --> Encoder["NexaEncoder"]
     Encoder --> HVS["Hypervector Space<br/>(10K+ dimensions)"]
     HVS --> Compress["NexaCompress"]
     Compress --> Stored[".nexa / .nexc Files"]
     Stored --> Decompress["NexaCompress<br/>Decompress"]
     Decompress --> HVS
+    HVS --> Encrypt["NexaCrypto<br/>(seed-based)"]
+    Encrypt --> HVS
     HVS --> Runtime["NexaRuntime"]
     Runtime --> Decoder["NexaDecoder"]
     Decoder --> Recovered["Recovered Data"]
 
     HVS --> Memory["Holographic Memory"]
     HVS --> Cleanup["Cleanup Memory"]
-    HVS --> Search["Similarity Search"]
-    HVS --> Classify["HDC Classifier"]
+    HVS --> Search["Similarity Search<br/>(Brute-force + LSH)"]
+    HVS --> Classify["Classifiers<br/>(HDC + k-NN)"]
 
-    ModelDef["Model Definition"] --> Forge["NexaForge"]
+    ModelDef["Model Definition<br/>(JSON / ONNX)"] --> Forge["NexaForge"]
     Forge --> ForgedModel["Forged Model"]
     ForgedModel --> Predict["Predict on HV Input"]
     HVS --> Predict
+
+    Classify --> Pipeline["Training Pipeline"]
+    Pipeline --> Ensemble["Ensemble Evaluator"]
 ```
 
 ```mermaid
@@ -186,19 +191,19 @@ assert!(result.similarity > 0.85);
 
 ```
 crates/
-├── nexa-core/        Core hypervector engine, SIMD ops, .nexa format
+├── nexa-core/        Core hypervector engine, AVX2/NEON SIMD ops, .nexa format
 ├── nexa-hdc/         HDC operations: codebooks, sequence/set encoding
 ├── nexa-holography/  Holographic reduced representations, FFT convolution
 ├── nexa-memory/      Cleanup memory, SDM, associative recall
-├── nexa-encoder/     Universal encoder (text, JSON, CSV, binary)
+├── nexa-encoder/     Universal encoder (text, JSON, CSV, binary, image, audio, sensor)
 ├── nexa-decoder/     Exact/approximate/cleanup/symbolic decoders
-├── nexa-runtime/     Classifiers, search, anomaly detection, clustering
+├── nexa-runtime/     Classifiers (HDC/k-NN), LSH search, encryption, training pipeline
 ├── nexa-topology/    Model architecture analysis, graph encoding
 ├── nexa-compress/    NexaCompress — lossless compression for HV data
-├── nexa-forge/       NexaForge — universal model wrapping engine
+├── nexa-forge/       NexaForge — model wrapping engine with ONNX ingestion
 ├── nexa-proof/       Formal verification bridge (Lean 4 → Rust)
 ├── nexa-cli/         Command-line interface
-├── nexa-bench/       Criterion benchmarks
+├── nexa-bench/       Criterion benchmarks (ops, compression, ML, search)
 └── nexa-python/      Python bindings (PyO3)
 
 proofs/
@@ -565,32 +570,43 @@ Memory-mappable binary format for persistent hypervector storage:
 ## CLI Usage
 
 ```bash
-# Encode a file
+# Encode text/JSON/CSV
 nexa encode input.txt -o encoded.nexa --dim 10000
 
-# Inspect a .nexa file
+# Encode images, audio, sensor data
+nexa encode-image photo.raw -o photo.nexa --width 28 --height 28
+nexa encode-audio clip.raw -o clip.nexa --frame-size 256
 nexa inspect encoded.nexa
 
-# Compute similarity between two encoded files
+# Similarity search
 nexa similarity a.nexa b.nexa
 
-# Run benchmarks
-nexa benchmark --dim 10000
-
-# Encode model topology
-nexa topology model.json
-
-# Compress a .nexa file (NexaCompress)
+# Compress / decompress
 nexa compress encoded.nexa -o compressed.nexc --strategy auto
-
-# Decompress back to .nexa
 nexa decompress compressed.nexc -o restored.nexa
 
-# Forge a model for encoded-space inference (NexaForge)
-nexa forge model_definition.json --dim 10000
+# Encrypt / decrypt (seed-based)
+nexa encrypt encoded.nexa --seed 42 -o encrypted.nexa
+nexa decrypt encrypted.nexa --seed 42 -o decrypted.nexa
 
-# Run inference with a forged model
-nexa forge-predict model_definition.json encoded_input.nexa --dim 10000
+# Forge a model (JSON or ONNX)
+nexa forge model_definition.json --dim 10000
+nexa forge-onnx model.onnx.json --labels "cat,dog,bird" --dim 10000
+
+# Run inference
+nexa forge-predict model.json input.nexa --dim 10000
+
+# k-NN classification
+nexa knn ./train_data/ query.nexa -k 3
+
+# Training pipeline (train + evaluate)
+nexa train ./train/ ./test/ --dim 10000 --retrain-epochs 5
+
+# Topology analysis
+nexa topology model.json
+
+# Benchmarks
+nexa benchmark --dim 10000
 ```
 
 ### Example: Encode and Inspect
@@ -643,6 +659,11 @@ NexaCore ships as an [MCP](https://modelcontextprotocol.io/) server, letting any
 | `compress_content` | Encode + compress in one step with stats |
 | `forge` | Forge a model for encoded-space inference |
 | `forge_predict` | Run inference on content using a forged model |
+| `forge_onnx` | Forge a model from ONNX JSON format |
+| `encode_image` | Encode grayscale image into HV space |
+| `encode_audio` | Encode audio data into HV space |
+| `encrypt` | Encode + encrypt content with seed-based encryption |
+| `train_and_evaluate` | Train HDC classifier and evaluate accuracy |
 
 ### Running Locally
 
@@ -697,13 +718,13 @@ Encoded file size: 1538 bytes
 
 ## SIMD Optimization
 
-NexaCore uses cache-friendly memory layouts and leverages hardware intrinsics:
+NexaCore uses hardware SIMD intrinsics with automatic runtime detection:
 
+- **AVX2 (x86_64)**: 256-bit SIMD for XOR binding, Hamming distance (via lookup-table popcount), and popcount
+- **AVX (x86_64)**: 256-bit FMA for f32 dot products
+- **Scalar fallback**: Automatic fallback for non-x86 architectures (ARM, WASM, etc.)
+- **Runtime detection**: `is_x86_feature_detected!()` dispatches to AVX2 or scalar at runtime
 - **Binary HVs**: Bit-packed in `u64` words for natural 64-bit XOR throughput
-- **Hamming distance**: `count_ones()` popcount on u64 words
-- **Real vectors**: 4-way f64 accumulator for dot products
-- **Runtime detection**: `is_x86_feature_detected!()` for AVX2/AVX512 acceleration
-- **Cache-aware**: Sequential memory access patterns, minimal branching
 
 ### Benchmark Targets
 
@@ -715,6 +736,214 @@ NexaCore uses cache-friendly memory layouts and leverages hardware intrinsics:
 | Bundle (10 vecs) | 10K | < 200μs |
 | Cleanup Query (1000 entries) | 1K | < 1ms |
 | Text Encode | 10K × 100 chars | < 500μs |
+| LSH Search (1000 entries) | 1K | < 100μs |
+| k-NN Classify (500 entries) | 1K | < 1ms |
+| Image Encode (28×28) | 10K | < 50ms |
+| Compression (100 vectors) | 10K | < 5ms |
+
+---
+
+## Multimodal Encoding
+
+NexaCore supports encoding multiple data modalities into the same hypervector space:
+
+```rust
+use nexa_encoder::NexaEncoder;
+
+let mut enc = NexaEncoder::new(10_000, 42);
+
+// Text, JSON, CSV (original)
+let text_hv = enc.encode_text("hello world").unwrap();
+let json_hv = enc.encode_json(r#"{"key": "value"}"#).unwrap();
+let csv_hv = enc.encode_csv_row(&["a", "b", "c"]).unwrap();
+
+// Image: 28x28 grayscale (MNIST-style)
+let pixels = vec![128u8; 784]; // 28 * 28
+let img_hv = enc.encode_image(&pixels, 28, 28).unwrap();
+
+// Audio: raw PCM samples with 256-sample frames
+let samples = vec![0u8; 8000]; // 1 second at 8kHz
+let audio_hv = enc.encode_audio(&samples, 256).unwrap();
+
+// Sensor: multi-channel time series
+let accel = vec![0.1f32, 0.5, -0.3, 0.8];
+let gyro = vec![0.0f32, -0.2, 0.7, -0.5];
+let sensor_hv = enc.encode_sensor(&[
+    ("accel_x", &accel),
+    ("gyro_z", &gyro),
+]).unwrap();
+```
+
+---
+
+## Encryption (NexaCrypto)
+
+Seed-based symmetric encryption for hypervectors. XORs the encoded HV with a deterministic PRNG stream — the same seed encrypts and decrypts:
+
+```rust
+use nexa_core::BinaryHV;
+use nexa_runtime::NexaCrypto;
+
+let hv = BinaryHV::random(10_000, 42).unwrap();
+let encrypted = NexaCrypto::encrypt(&hv, 12345);
+let decrypted = NexaCrypto::decrypt(&encrypted, 12345);
+
+// Encrypted looks random (~50% similarity to original)
+assert!(hv.hamming_similarity(&encrypted).unwrap() < 0.55);
+// Decrypted is identical to original
+assert_eq!(hv.hamming_similarity(&decrypted).unwrap(), 1.0);
+```
+
+---
+
+## LSH Approximate Search
+
+Locality-Sensitive Hashing for fast approximate nearest neighbor search in Hamming space:
+
+```rust
+use nexa_core::BinaryHV;
+use nexa_runtime::LshIndex;
+
+let mut index = LshIndex::new(10_000, 10, 12, 42); // 10 tables, 12 bits each
+
+// Insert vectors
+for i in 0..1000u64 {
+    let v = BinaryHV::random(10_000, i).unwrap();
+    index.insert(format!("item_{}", i), v);
+}
+
+// Approximate search (sub-linear time)
+let query = BinaryHV::random(10_000, 42).unwrap();
+let results = index.search(&query, 5);
+// → results ranked by exact Hamming similarity
+```
+
+---
+
+## k-NN Classifier
+
+k-Nearest Neighbor classification in hypervector space with majority voting:
+
+```rust
+use nexa_core::BinaryHV;
+use nexa_runtime::KnnClassifier;
+
+let mut knn = KnnClassifier::new(10_000, 3); // k=3
+
+// Add training examples
+knn.insert("cat".into(), cat_hv);
+knn.insert("dog".into(), dog_hv);
+
+// Predict
+let result = knn.predict(&query_hv).unwrap();
+println!("{} (confidence: {:.3})", result.class, result.confidence);
+```
+
+---
+
+## Training Pipeline
+
+End-to-end encode → train → evaluate pipeline with optional iterative retraining:
+
+```rust
+use nexa_runtime::TrainingPipeline;
+
+let pipeline = TrainingPipeline::new(10_000);
+let (classifier, eval) = pipeline.train_with_retraining(&train, &test, 5);
+
+println!("Accuracy: {:.2}%", eval.accuracy * 100.0);
+for (class, acc) in &eval.per_class {
+    println!("  {}: {:.2}%", class, acc * 100.0);
+}
+```
+
+---
+
+## Ensemble Evaluation
+
+Evaluate all combinations of classifiers via majority voting (up to 2^16 combinations):
+
+```rust
+use nexa_runtime::EnsembleEvaluator;
+
+let results = EnsembleEvaluator::evaluate_combinations(&[&c1, &c2, &c3], &test);
+for (combo, accuracy) in results.iter().take(5) {
+    println!("  Classifiers {:?}: {:.2}%", combo, accuracy * 100.0);
+}
+```
+
+---
+
+## ONNX Model Ingestion
+
+Parse ONNX JSON format and convert to NexaForge ModelDefinition:
+
+```rust
+use nexa_forge::parse_onnx_json;
+
+let onnx_json = std::fs::read_to_string("model.onnx.json").unwrap();
+let labels = vec!["cat".into(), "dog".into()];
+let definition = parse_onnx_json(&onnx_json, labels).unwrap();
+
+// Then forge it
+let config = nexa_forge::ForgeConfig { dim: 10_000, seed: 42, bipolar_projection: true };
+let (model, report) = nexa_forge::ForgeEngine::forge(&definition, &config).unwrap();
+```
+
+Supported ONNX operators: `Gemm`, `MatMul`, `Conv`, `MaxPool`, `AveragePool`, `Relu`, `Flatten`, `Reshape`, `BatchNormalization`, `Dropout`, `Softmax`.
+
+---
+
+## Python Bindings
+
+Python bindings via PyO3 (built separately with maturin):
+
+```python
+import nexa_python as nexa
+
+# Create hypervectors
+hv = nexa.PyBinaryHV.random(10000, seed=42)
+
+# Encode data
+encoder = nexa.PyEncoder(dim=10000, seed=42)
+text_hv = encoder.encode_text("hello world")
+img_hv = encoder.encode_image(pixels, width=28, height=28)
+
+# Search
+index = nexa.PyLshIndex(dim=10000, num_tables=10, bits_per_hash=12, seed=42)
+index.insert("item_1", hv)
+results = index.search(query_hv, top_k=5)
+
+# Classify
+knn = nexa.PyKnnClassifier(dim=10000, k=3)
+knn.insert("cat", cat_hv)
+prediction = knn.predict(query_hv)  # → ("cat", 0.85)
+```
+
+Build with maturin:
+```bash
+cd crates/nexa-python
+pip install maturin
+maturin develop --release
+```
+
+---
+
+## Docker
+
+```bash
+# Build
+docker build -t nexa-core .
+
+# Run MCP server
+docker run -i nexa-core
+
+# Run CLI commands
+docker run --entrypoint nexa nexa-core encode input.txt
+
+# With custom data
+docker run -v $(pwd)/data:/data --entrypoint nexa nexa-core encode /data/input.txt -o /data/out.nexa
+```
 
 ---
 
@@ -787,16 +1016,17 @@ cargo build -p nexa-cli --release
 ```bash
 $ cargo test --workspace
 
-running 22 tests ... nexa-core       ✓ (22 passed)
+running 27 tests ... nexa-core       ✓ (27 passed)  # +5 SIMD tests
 running  7 tests ... nexa-hdc        ✓ ( 7 passed)
 running  5 tests ... nexa-holography ✓ ( 5 passed)
 running  6 tests ... nexa-memory     ✓ ( 6 passed)
-running  6 tests ... nexa-encoder    ✓ ( 6 passed)
+running 11 tests ... nexa-encoder    ✓ (11 passed)  # +5 multimodal tests
 running  8 tests ... nexa-decoder    ✓ ( 8 passed)
-running  6 tests ... nexa-runtime    ✓ ( 6 passed)
+running 12 tests ... nexa-runtime    ✓ (12 passed)  # +6 LSH/k-NN/crypto/pipeline tests
 running  6 tests ... nexa-topology   ✓ ( 6 passed)
 running  7 tests ... nexa-compress   ✓ ( 7 passed)
-running 10 tests ... nexa-forge      ✓ (10 passed)
+running 12 tests ... nexa-forge      ✓ (12 passed)  # +2 ONNX tests
+running  3 tests ... nexa-proof      ✓ ( 3 passed)
 ```
 
 ---
@@ -917,32 +1147,28 @@ gantt
     section Core
     NexaCompress (lossless)  :done, 2026-05-01, 2026-05-26
     NexaForge (model wrap)   :done, 2026-05-01, 2026-05-26
+    AVX2/AVX SIMD            :done, 2026-05-26, 2026-05-26
+    Multimodal encoding      :done, 2026-05-26, 2026-05-26
+    LSH approximate search   :done, 2026-05-26, 2026-05-26
+    k-NN classifier          :done, 2026-05-26, 2026-05-26
+    Seed-based encryption    :done, 2026-05-26, 2026-05-26
+    Conv2d/Pooling forge     :done, 2026-05-26, 2026-05-26
+    ONNX ingestion           :done, 2026-05-26, 2026-05-26
+    Training pipeline        :done, 2026-05-26, 2026-05-26
+    Ensemble evaluation      :done, 2026-05-26, 2026-05-26
+    Python bindings (PyO3)   :done, 2026-05-26, 2026-05-26
+    Docker deployment        :done, 2026-05-26, 2026-05-26
     GPU kernels (wgpu)       :2026-07-01, 2026-12-31
-    ONNX interop             :2026-07-01, 2026-12-31
-    Python bindings (pyo3)   :2026-07-01, 2026-12-31
     section Distributed
-    Distributed vector compute :2026-10-01, 2027-03-31
     Vector database layer    :2026-10-01, 2027-03-31
-    section AI
-    Conv2d/Pooling forge     :2026-07-01, 2026-09-30
-    Image/audio encoding     :2026-07-01, 2026-12-31
-    Multimodal representations :2027-01-01, 2027-06-30
-    Symbolic-neural hybrid   :2027-01-01, 2027-06-30
-    Edge AI runtime          :2027-04-01, 2027-09-30
     section Advanced
+    Edge AI runtime          :2027-04-01, 2027-09-30
     Quantum-inspired representations :2027-07-01, 2027-12-31
-    Compressed-domain inference      :2027-04-01, 2027-09-30
-    Holographic memory persistence   :2027-01-01, 2027-06-30
 ```
 
 ### Planned Features
 
 - **GPU Acceleration** — wgpu compute shaders for parallel XOR/bundling
-- **Python Bindings** — PyO3 bindings for seamless Python interop
-- **ONNX Interop** — Full ONNX graph parsing for NexaForge model import
-- **Conv2d / Pooling Translation** — NexaForge support for CNN layers
-- **Image / Audio Encoding** — Direct image and audio → HV encoding
-- **Distributed Compute** — Sharded hypervector operations across nodes
 - **Vector Database** — Persistent, indexed HV storage with ANN search
 - **Edge Runtime** — Minimal footprint for embedded/IoT deployment
 - **Quantum-Inspired** — Superposition-based quantum representations

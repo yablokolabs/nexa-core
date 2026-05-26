@@ -475,9 +475,11 @@ name = "nexa-bench"
 version = "0.1.0"
 dependencies = [
  "criterion",
+ "nexa-compress",
  "nexa-core",
  "nexa-decoder",
  "nexa-encoder",
+ "nexa-forge",
  "nexa-hdc",
  "nexa-holography",
  "nexa-memory",
@@ -633,10 +635,6 @@ dependencies = [
  "serde_json",
  "thiserror",
 ]
-
-[[package]]
-name = "nexa-python"
-version = "0.1.0"
 
 [[package]]
 name = "nexa-runtime"

@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use nexa_core::BinaryHV;
 use nexa_encoder::{read_nexa_file, write_nexa_file, NexaEncoder};
+use nexa_runtime::{KnnClassifier, NexaCrypto, TrainingPipeline};
 use nexa_topology::{ModelGraph, TopologyAnalyzer};
 use std::path::Path;
 use std::time::Instant;
@@ -78,6 +79,75 @@ enum Commands {
         #[arg(short, long, default_value_t = 10000)]
         dim: usize,
     },
+    /// Forge a model from ONNX JSON format
+    ForgeOnnx {
+        /// ONNX JSON file
+        input: String,
+        /// Comma-separated class labels
+        #[arg(short, long)]
+        labels: String,
+        #[arg(short, long, default_value_t = 10000)]
+        dim: usize,
+    },
+    /// Encode an image file into hypervector space
+    EncodeImage {
+        /// Raw grayscale pixel file (or any binary file)
+        input: String,
+        #[arg(short, long, default_value = "encoded.nexa")]
+        output: String,
+        #[arg(long)]
+        width: usize,
+        #[arg(long)]
+        height: usize,
+        #[arg(short, long, default_value_t = 10000)]
+        dim: usize,
+    },
+    /// Encode audio data into hypervector space
+    EncodeAudio {
+        input: String,
+        #[arg(short, long, default_value = "encoded.nexa")]
+        output: String,
+        #[arg(long, default_value_t = 256)]
+        frame_size: usize,
+        #[arg(short, long, default_value_t = 10000)]
+        dim: usize,
+    },
+    /// Encrypt a .nexa file with a seed
+    Encrypt {
+        input: String,
+        #[arg(short, long)]
+        seed: u64,
+        #[arg(short, long, default_value = "encrypted.nexa")]
+        output: String,
+    },
+    /// Decrypt a .nexa file with a seed
+    Decrypt {
+        input: String,
+        #[arg(short, long)]
+        seed: u64,
+        #[arg(short, long, default_value = "decrypted.nexa")]
+        output: String,
+    },
+    /// Run k-NN classification on encoded data
+    Knn {
+        /// Directory of labeled .nexa files (filename = label)
+        train_dir: String,
+        /// .nexa file to classify
+        input: String,
+        #[arg(short, long, default_value_t = 3)]
+        k: usize,
+    },
+    /// Run training pipeline (train + evaluate)
+    Train {
+        /// Directory of labeled .nexa files for training
+        train_dir: String,
+        /// Directory of labeled .nexa files for testing
+        test_dir: String,
+        #[arg(short, long, default_value_t = 10000)]
+        dim: usize,
+        #[arg(long, default_value_t = 0)]
+        retrain_epochs: usize,
+    },
 }
 
 fn main() {
@@ -105,6 +175,13 @@ fn run(cli: Cli) -> Result<()> {
         Commands::Decompress { input, output } => cmd_decompress(&input, &output),
         Commands::Forge { input, dim } => cmd_forge(&input, dim),
         Commands::ForgePredict { model, input, dim } => cmd_forge_predict(&model, &input, dim),
+        Commands::ForgeOnnx { input, labels, dim } => cmd_forge_onnx(&input, &labels, dim),
+        Commands::EncodeImage { input, output, width, height, dim } => cmd_encode_image(&input, &output, width, height, dim),
+        Commands::EncodeAudio { input, output, frame_size, dim } => cmd_encode_audio(&input, &output, frame_size, dim),
+        Commands::Encrypt { input, seed, output } => cmd_encrypt(&input, seed, &output),
+        Commands::Decrypt { input, seed, output } => cmd_decrypt(&input, seed, &output),
+        Commands::Knn { train_dir, input, k } => cmd_knn(&train_dir, &input, k),
+        Commands::Train { train_dir, test_dir, dim, retrain_epochs } => cmd_train(&train_dir, &test_dir, dim, retrain_epochs),
     }
 }
 
@@ -518,5 +595,246 @@ fn cmd_forge_predict(model_path: &str, input_path: &str, dim: usize) -> Result<(
     for (i, (class, score)) in predictions.iter().enumerate().take(10) {
         println!("    {}: {class} ({score:.4})", i + 1);
     }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// ONNX Forge command
+// ---------------------------------------------------------------------------
+
+fn cmd_forge_onnx(input_path: &str, labels: &str, dim: usize) -> Result<()> {
+    let start = Instant::now();
+    let json_str =
+        std::fs::read_to_string(input_path).with_context(|| format!("Cannot read {input_path}"))?;
+    let class_labels: Vec<String> = labels.split(',').map(|s| s.trim().to_string()).collect();
+    let definition = nexa_forge::parse_onnx_json(&json_str, class_labels)
+        .context("Failed to parse ONNX JSON")?;
+
+    let config = nexa_forge::ForgeConfig {
+        dim,
+        seed: 42,
+        bipolar_projection: true,
+    };
+    let (model, report) =
+        nexa_forge::ForgeEngine::forge(&definition, &config).context("Forge failed")?;
+
+    println!("{report}");
+    println!("  Layers: {}", model.layer_count());
+    println!("  Time:   {:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Image encoding command
+// ---------------------------------------------------------------------------
+
+fn cmd_encode_image(
+    input_path: &str,
+    output_path: &str,
+    width: usize,
+    height: usize,
+    dim: usize,
+) -> Result<()> {
+    let start = Instant::now();
+    let pixels =
+        std::fs::read(input_path).with_context(|| format!("Cannot read {input_path}"))?;
+    anyhow::ensure!(
+        pixels.len() >= width * height,
+        "File has {} bytes, expected at least {}",
+        pixels.len(),
+        width * height
+    );
+
+    let mut encoder = NexaEncoder::new(dim, 42);
+    let hv = encoder
+        .encode_image(&pixels[..width * height], width, height)
+        .context("Image encoding failed")?;
+    write_nexa_file(Path::new(output_path), &encoder, &[&hv])?;
+    println!("Image Encoded");
+    println!("  Input:  {input_path} ({}x{})", width, height);
+    println!("  Output: {output_path}");
+    println!("  Dim:    {dim}");
+    println!("  Time:   {:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Audio encoding command
+// ---------------------------------------------------------------------------
+
+fn cmd_encode_audio(
+    input_path: &str,
+    output_path: &str,
+    frame_size: usize,
+    dim: usize,
+) -> Result<()> {
+    let start = Instant::now();
+    let samples =
+        std::fs::read(input_path).with_context(|| format!("Cannot read {input_path}"))?;
+
+    let mut encoder = NexaEncoder::new(dim, 42);
+    let hv = encoder
+        .encode_audio(&samples, frame_size)
+        .context("Audio encoding failed")?;
+    write_nexa_file(Path::new(output_path), &encoder, &[&hv])?;
+    println!("Audio Encoded");
+    println!("  Input:  {input_path} ({} bytes, frame_size={})", samples.len(), frame_size);
+    println!("  Output: {output_path}");
+    println!("  Dim:    {dim}");
+    println!("  Time:   {:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Encrypt / Decrypt commands
+// ---------------------------------------------------------------------------
+
+fn cmd_encrypt(input_path: &str, seed: u64, output_path: &str) -> Result<()> {
+    let (header, vectors) =
+        read_nexa_file(Path::new(input_path)).with_context(|| format!("Cannot read {input_path}"))?;
+    let dim = header.dimension as usize;
+
+    let encoder = NexaEncoder::new(dim, 0);
+    let encrypted: Vec<BinaryHV> = vectors
+        .iter()
+        .map(|raw| {
+            let hv = raw_to_hv(raw, dim).unwrap();
+            NexaCrypto::encrypt(&hv, seed)
+        })
+        .collect();
+    let refs: Vec<&BinaryHV> = encrypted.iter().collect();
+    write_nexa_file(Path::new(output_path), &encoder, &refs)?;
+    println!("Encrypted");
+    println!("  Input:   {input_path} ({} vectors)", vectors.len());
+    println!("  Output:  {output_path}");
+    println!("  Seed:    {seed}");
+    Ok(())
+}
+
+fn cmd_decrypt(input_path: &str, seed: u64, output_path: &str) -> Result<()> {
+    let (header, vectors) =
+        read_nexa_file(Path::new(input_path)).with_context(|| format!("Cannot read {input_path}"))?;
+    let dim = header.dimension as usize;
+
+    let encoder = NexaEncoder::new(dim, 0);
+    let decrypted: Vec<BinaryHV> = vectors
+        .iter()
+        .map(|raw| {
+            let hv = raw_to_hv(raw, dim).unwrap();
+            NexaCrypto::decrypt(&hv, seed)
+        })
+        .collect();
+    let refs: Vec<&BinaryHV> = decrypted.iter().collect();
+    write_nexa_file(Path::new(output_path), &encoder, &refs)?;
+    println!("Decrypted");
+    println!("  Input:   {input_path} ({} vectors)", vectors.len());
+    println!("  Output:  {output_path}");
+    println!("  Seed:    {seed}");
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// k-NN classification command
+// ---------------------------------------------------------------------------
+
+fn cmd_knn(train_dir: &str, input_path: &str, k: usize) -> Result<()> {
+    let start = Instant::now();
+
+    // Load training data: each .nexa file in the directory is a class
+    let mut knn = KnnClassifier::new(10000, k);
+    let entries: Vec<_> = std::fs::read_dir(train_dir)
+        .with_context(|| format!("Cannot read directory {train_dir}"))?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().map_or(false, |ext| ext == "nexa"))
+        .collect();
+
+    for entry in &entries {
+        let label = entry
+            .path()
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let (header, vectors) = read_nexa_file(&entry.path())?;
+        for raw in &vectors {
+            let hv = raw_to_hv(raw, header.dimension as usize)?;
+            knn.insert(label.clone(), hv);
+        }
+    }
+
+    // Classify input
+    let (header, vectors) =
+        read_nexa_file(Path::new(input_path)).with_context(|| format!("Cannot read {input_path}"))?;
+    anyhow::ensure!(!vectors.is_empty(), "{input_path} contains no vectors");
+    let query = raw_to_hv(&vectors[0], header.dimension as usize)?;
+
+    if let Some(pred) = knn.predict(&query) {
+        println!("k-NN Classification (k={})", k);
+        println!("  Training: {} files, {} vectors", entries.len(), knn.len());
+        println!("  Input:    {input_path}");
+        println!("  Predicted class: {}", pred.class);
+        println!("  Confidence:      {:.4}", pred.confidence);
+        println!("  Time:            {:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
+    } else {
+        println!("No prediction could be made (empty training set?)");
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Training pipeline command
+// ---------------------------------------------------------------------------
+
+fn cmd_train(
+    train_dir: &str,
+    test_dir: &str,
+    dim: usize,
+    retrain_epochs: usize,
+) -> Result<()> {
+    let start = Instant::now();
+    let pipeline = TrainingPipeline::new(dim);
+
+    let load_dir = |dir: &str| -> Result<Vec<(String, BinaryHV)>> {
+        let mut data = Vec::new();
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            if entry.path().extension().map_or(false, |ext| ext == "nexa") {
+                let label = entry
+                    .path()
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let (header, vectors) = read_nexa_file(&entry.path())?;
+                for raw in &vectors {
+                    let hv = raw_to_hv(raw, header.dimension as usize)?;
+                    data.push((label.clone(), hv));
+                }
+            }
+        }
+        Ok(data)
+    };
+
+    let train = load_dir(train_dir).context("Failed to load training data")?;
+    let test = load_dir(test_dir).context("Failed to load test data")?;
+
+    let (_, eval) = if retrain_epochs > 0 {
+        pipeline.train_with_retraining(&train, &test, retrain_epochs)
+    } else {
+        pipeline.train_and_evaluate(&train, &test)
+    };
+
+    println!("Training Pipeline Results");
+    println!("  Train: {} examples from {train_dir}", train.len());
+    println!("  Test:  {} examples from {test_dir}", test.len());
+    println!("  Accuracy: {:.2}% ({}/{})", eval.accuracy * 100.0, eval.correct, eval.total);
+    if retrain_epochs > 0 {
+        println!("  Retrain epochs: {retrain_epochs}");
+    }
+    println!("  Per-class:");
+    for (class, acc) in &eval.per_class {
+        println!("    {class}: {:.2}%", acc * 100.0);
+    }
+    println!("  Time: {:.1}ms", start.elapsed().as_secs_f64() * 1000.0);
     Ok(())
 }

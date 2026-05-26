@@ -290,6 +290,132 @@ def forge_predict(model_json: str, content: str, content_type: str = "text", dim
         return _run_nexa("forge-predict", str(model_path), str(nexa_path), "-d", str(dim))
 
 
+@server.tool()
+def forge_onnx(onnx_json: str, labels: str, dim: int = 10000) -> str:
+    """Forge a model from ONNX JSON format for encoded-space inference.
+
+    Args:
+        onnx_json: ONNX model in JSON format (exported via onnx2json or similar).
+        labels: Comma-separated class labels.
+        dim: Hypervector dimensionality (default 10000).
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        onnx_path = Path(tmpdir) / "model.onnx.json"
+        onnx_path.write_text(onnx_json)
+        return _run_nexa("forge-onnx", str(onnx_path), "-l", labels, "-d", str(dim))
+
+
+@server.tool()
+def encode_image(image_base64: str, width: int, height: int, dim: int = 10000) -> str:
+    """Encode a grayscale image into hypervector space.
+
+    Args:
+        image_base64: Base64-encoded raw pixel data (grayscale, row-major).
+        width: Image width in pixels.
+        height: Image height in pixels.
+        dim: Hypervector dimensionality (default 10000).
+    """
+    import base64
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pixel_path = Path(tmpdir) / "image.raw"
+        nexa_path = Path(tmpdir) / "image.nexa"
+        pixel_path.write_bytes(base64.b64decode(image_base64))
+        output = _run_nexa(
+            "encode-image", str(pixel_path), "-o", str(nexa_path),
+            "--width", str(width), "--height", str(height), "-d", str(dim),
+        )
+        return output
+
+
+@server.tool()
+def encode_audio(audio_base64: str, frame_size: int = 256, dim: int = 10000) -> str:
+    """Encode audio data into hypervector space.
+
+    Args:
+        audio_base64: Base64-encoded raw audio samples.
+        frame_size: Number of samples per frame (default 256).
+        dim: Hypervector dimensionality (default 10000).
+    """
+    import base64
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        audio_path = Path(tmpdir) / "audio.raw"
+        nexa_path = Path(tmpdir) / "audio.nexa"
+        audio_path.write_bytes(base64.b64decode(audio_base64))
+        return _run_nexa(
+            "encode-audio", str(audio_path), "-o", str(nexa_path),
+            "--frame-size", str(frame_size), "-d", str(dim),
+        )
+
+
+@server.tool()
+def encrypt(content: str, seed: int, content_type: str = "text", dim: int = 10000) -> str:
+    """Encrypt content by encoding to HV space then encrypting with a seed.
+
+    Args:
+        content: The content to encode and encrypt.
+        seed: Encryption seed (same seed needed for decryption).
+        content_type: Type of content — "text", "json", or "csv".
+        dim: Hypervector dimensionality (default 10000).
+    """
+    ext_map = {"text": ".txt", "json": ".json", "csv": ".csv"}
+    ext = ext_map.get(content_type, ".txt")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_path = Path(tmpdir) / f"input{ext}"
+        nexa_path = Path(tmpdir) / "input.nexa"
+        enc_path = Path(tmpdir) / "encrypted.nexa"
+
+        input_path.write_text(content)
+        _run_nexa("encode", str(input_path), "-o", str(nexa_path), "-d", str(dim))
+
+        if not nexa_path.exists():
+            return "Error: failed to encode input."
+
+        return _run_nexa("encrypt", str(nexa_path), "-s", str(seed), "-o", str(enc_path))
+
+
+@server.tool()
+def train_and_evaluate(
+    train_data: dict, test_data: dict, dim: int = 10000, retrain_epochs: int = 0,
+) -> str:
+    """Train an HDC classifier and evaluate accuracy.
+
+    Args:
+        train_data: Dict mapping class labels to lists of text examples.
+        test_data: Dict mapping class labels to lists of text examples.
+        dim: Hypervector dimensionality (default 10000).
+        retrain_epochs: Number of retraining epochs (default 0).
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        train_dir = Path(tmpdir) / "train"
+        test_dir = Path(tmpdir) / "test"
+        train_dir.mkdir()
+        test_dir.mkdir()
+
+        # Encode training data
+        for label, examples in train_data.items():
+            for i, text in enumerate(examples):
+                txt_path = train_dir / f"{label}_{i}.txt"
+                nexa_path = train_dir / f"{label}.nexa"
+                txt_path.write_text(text)
+                _run_nexa("encode", str(txt_path), "-o", str(nexa_path), "-d", str(dim))
+
+        # Encode test data
+        for label, examples in test_data.items():
+            for i, text in enumerate(examples):
+                txt_path = test_dir / f"{label}_{i}.txt"
+                nexa_path = test_dir / f"{label}.nexa"
+                txt_path.write_text(text)
+                _run_nexa("encode", str(txt_path), "-o", str(nexa_path), "-d", str(dim))
+
+        args = ["train", str(train_dir), str(test_dir), "-d", str(dim)]
+        if retrain_epochs > 0:
+            args.extend(["--retrain-epochs", str(retrain_epochs)])
+        return _run_nexa(*args)
+
+
 def main():
     server.run(transport="stdio")
 

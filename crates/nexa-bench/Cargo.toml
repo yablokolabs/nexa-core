@@ -12,6 +12,8 @@ nexa-memory = { workspace = true }
 nexa-encoder = { workspace = true }
 nexa-decoder = { workspace = true }
 nexa-runtime = { workspace = true }
+nexa-compress = { workspace = true }
+nexa-forge = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
 

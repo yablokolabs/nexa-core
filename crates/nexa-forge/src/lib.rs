@@ -261,6 +261,18 @@ enum ForgedLayerKind {
     Passthrough,
     /// BatchNorm: L2 normalise the real-valued representation.
     Normalize,
+    /// Conv2d: patch-wise random projection of filters into HV space.
+    Conv2d {
+        filter_hvs: Vec<RealHV>,
+        num_filters: usize,
+        #[allow(dead_code)]
+        kernel_size: usize,
+    },
+    /// Pooling: reduce spatial dimensions via max or average over segments.
+    Pooling {
+        pool_type: String,
+        pool_size: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -388,6 +400,61 @@ impl ForgedModel {
                 } else {
                     Ok(input.iter().map(|&x| x / norm).collect())
                 }
+            }
+            ForgedLayerKind::Conv2d {
+                filter_hvs,
+                num_filters,
+                kernel_size: _,
+            } => {
+                // Patch-wise convolution in HV space: each filter HV computes
+                // a dot product against overlapping patches of the input.
+                // Output: one value per filter per patch position.
+                let patch_stride = num_filters.max(&1);
+                let num_patches = (input.len() + patch_stride - 1) / patch_stride;
+                let mut output = Vec::new();
+
+                for p in 0..num_patches {
+                    let start = p * patch_stride;
+                    for filter in filter_hvs {
+                        let filter_data = filter.data();
+                        let len = filter_data.len().min(input.len() - start);
+                        let dot: f64 = filter_data[..len]
+                            .iter()
+                            .zip(input[start..start + len].iter())
+                            .map(|(&w, &x)| w as f64 * x)
+                            .sum();
+                        output.push(dot);
+                    }
+                }
+                Ok(output)
+            }
+            ForgedLayerKind::Pooling {
+                pool_type,
+                pool_size,
+            } => {
+                let ps = (*pool_size).max(1);
+                let num_out = (input.len() + ps - 1) / ps;
+                let mut output = Vec::with_capacity(num_out);
+
+                for i in 0..num_out {
+                    let start = i * ps;
+                    let end = (start + ps).min(input.len());
+                    let chunk = &input[start..end];
+                    let val = match pool_type.as_str() {
+                        "avg" | "average" => {
+                            chunk.iter().sum::<f64>() / chunk.len() as f64
+                        }
+                        _ => {
+                            // Default: max pooling
+                            chunk
+                                .iter()
+                                .cloned()
+                                .fold(f64::NEG_INFINITY, f64::max)
+                        }
+                    };
+                    output.push(val);
+                }
+                Ok(output)
             }
         }
     }
@@ -550,9 +617,84 @@ impl ForgeEngine {
                         kind: ForgedLayerKind::Passthrough,
                     });
                 }
-                LayerType::Pooling { .. } | LayerType::Conv2d { .. } | LayerType::Custom { .. } => {
-                    // These would need more complex translation.
-                    // For now, add a passthrough with a warning.
+                LayerType::Conv2d { filters, kernel_size, activation } => {
+                    let layer_name = &layer_node.name;
+                    let filter_dim = kernel_size.0 * kernel_size.1;
+
+                    let filter_hvs = if let Some(weight) = definition.weights.get(layer_name) {
+                        total_weights += weight.data.len();
+                        let proj = ProjectionMatrix::new(
+                            config.dim,
+                            weight.cols.max(filter_dim),
+                            config.seed + seed_offset,
+                        );
+                        seed_offset += 1;
+
+                        let mut hvs = Vec::new();
+                        for row_idx in 0..weight.rows.min(*filters) {
+                            let row = weight.row(row_idx);
+                            let projected = proj.project(row);
+                            let hv = RealHV::from_data(projected, config.dim)?;
+                            hvs.push(hv);
+                            projected_weights += config.dim;
+                        }
+                        hvs
+                    } else {
+                        let proj = ProjectionMatrix::new(
+                            config.dim,
+                            filter_dim,
+                            config.seed + seed_offset,
+                        );
+                        seed_offset += 1;
+
+                        let mut hvs = Vec::new();
+                        for f in 0..*filters {
+                            let dummy_weight: Vec<f32> = (0..filter_dim)
+                                .map(|j| ((f * filter_dim + j) as f32).sin())
+                                .collect();
+                            let projected = proj.project(&dummy_weight);
+                            let hv = RealHV::from_data(projected, config.dim)?;
+                            hvs.push(hv);
+                            projected_weights += config.dim;
+                        }
+                        hvs
+                    };
+
+                    forged_layers.push(ForgedLayer {
+                        name: format!("{}_conv2d", layer_name),
+                        kind: ForgedLayerKind::Conv2d {
+                            filter_hvs,
+                            num_filters: *filters,
+                            kernel_size: kernel_size.0,
+                        },
+                    });
+
+                    match activation.to_lowercase().as_str() {
+                        "relu" => {
+                            forged_layers.push(ForgedLayer {
+                                name: format!("{}_relu", layer_name),
+                                kind: ForgedLayerKind::ReLU,
+                            });
+                        }
+                        "sigmoid" => {
+                            forged_layers.push(ForgedLayer {
+                                name: format!("{}_sigmoid", layer_name),
+                                kind: ForgedLayerKind::Sigmoid,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                LayerType::Pooling { pool_type, size } => {
+                    forged_layers.push(ForgedLayer {
+                        name: layer_node.name.clone(),
+                        kind: ForgedLayerKind::Pooling {
+                            pool_type: pool_type.clone(),
+                            pool_size: size.0,
+                        },
+                    });
+                }
+                LayerType::Custom { .. } => {
                     tracing::warn!(
                         "Layer '{}' ({:?}) has no HV translation; using passthrough",
                         layer_node.name,
@@ -599,8 +741,248 @@ impl ForgeEngine {
 }
 
 // ---------------------------------------------------------------------------
-// Tests
+// ONNX Ingestion — parse ONNX JSON format into ModelDefinition
 // ---------------------------------------------------------------------------
+
+/// ONNX JSON node representation.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OnnxNode {
+    pub op_type: String,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub input: Vec<String>,
+    #[serde(default)]
+    pub output: Vec<String>,
+    #[serde(default)]
+    pub attribute: Vec<OnnxAttribute>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OnnxAttribute {
+    pub name: String,
+    #[serde(default)]
+    pub i: Option<i64>,
+    #[serde(default)]
+    pub f: Option<f32>,
+    #[serde(default)]
+    pub s: Option<String>,
+    #[serde(default)]
+    pub ints: Vec<i64>,
+}
+
+/// ONNX JSON tensor (initializer) representation.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OnnxTensor {
+    pub name: String,
+    pub dims: Vec<usize>,
+    #[serde(default)]
+    pub float_data: Vec<f32>,
+    #[serde(default)]
+    pub raw_data: Option<String>,
+}
+
+/// Top-level ONNX JSON model.
+#[derive(Debug, Clone, Deserialize)]
+pub struct OnnxModel {
+    pub graph: OnnxGraph,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OnnxGraph {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub node: Vec<OnnxNode>,
+    #[serde(default)]
+    pub initializer: Vec<OnnxTensor>,
+    #[serde(default)]
+    pub input: Vec<OnnxValueInfo>,
+    #[serde(default)]
+    pub output: Vec<OnnxValueInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OnnxValueInfo {
+    pub name: String,
+}
+
+/// Parse an ONNX JSON string and convert to a ModelDefinition.
+pub fn parse_onnx_json(json_str: &str, class_labels: Vec<String>) -> Result<ModelDefinition> {
+    let onnx: OnnxModel = serde_json::from_str(json_str)
+        .map_err(|e| NexaError::EncodingError(format!("ONNX JSON parse error: {}", e)))?;
+
+    let graph_name = onnx.graph.name.unwrap_or_else(|| "onnx_model".to_string());
+    let mut model_graph = ModelGraph::new(&graph_name);
+    let mut weights: HashMap<String, WeightMatrix> = HashMap::new();
+    let mut biases: HashMap<String, BiasVector> = HashMap::new();
+
+    // Parse initializers (weights and biases)
+    let mut initializers: HashMap<String, &OnnxTensor> = HashMap::new();
+    for tensor in &onnx.graph.initializer {
+        initializers.insert(tensor.name.clone(), tensor);
+    }
+
+    // Add input layer
+    let input_name = onnx
+        .graph
+        .input
+        .first()
+        .map(|v| v.name.clone())
+        .unwrap_or_else(|| "input".to_string());
+    let prev_id = model_graph.add_layer(&input_name, LayerType::Input { shape: vec![0] });
+
+    let mut prev_layer_id = prev_id;
+    let mut layer_idx = 0;
+
+    for node in &onnx.graph.node {
+        let name = node
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("layer_{}", layer_idx));
+
+        let layer_type = match node.op_type.as_str() {
+            "Gemm" | "MatMul" => {
+                // Dense/fully-connected layer
+                let units = if let Some(w_name) = node.input.get(1) {
+                    if let Some(tensor) = initializers.get(w_name) {
+                        let rows = *tensor.dims.first().unwrap_or(&0);
+                        let cols = *tensor.dims.get(1).unwrap_or(&0);
+                        if !tensor.float_data.is_empty() {
+                            weights.insert(
+                                name.clone(),
+                                WeightMatrix::new(rows, cols, tensor.float_data.clone()),
+                            );
+                        }
+                        cols
+                    } else {
+                        128
+                    }
+                } else {
+                    128
+                };
+
+                // Check for bias
+                if let Some(b_name) = node.input.get(2) {
+                    if let Some(tensor) = initializers.get(b_name) {
+                        if !tensor.float_data.is_empty() {
+                            biases.insert(
+                                name.clone(),
+                                BiasVector {
+                                    data: tensor.float_data.clone(),
+                                },
+                            );
+                        }
+                    }
+                }
+
+                Some(LayerType::Dense {
+                    units,
+                    activation: "linear".to_string(),
+                })
+            }
+            "Relu" => {
+                let id = model_graph.add_layer(&name, LayerType::Dense {
+                    units: 0,
+                    activation: "relu".to_string(),
+                });
+                model_graph.connect(prev_layer_id, id);
+                prev_layer_id = id;
+                layer_idx += 1;
+                continue;
+            }
+            "Conv" => {
+                let mut filters = 32;
+                let mut kernel_h = 3usize;
+                let mut kernel_w = 3usize;
+
+                for attr in &node.attribute {
+                    match attr.name.as_str() {
+                        "kernel_shape" => {
+                            if attr.ints.len() >= 2 {
+                                kernel_h = attr.ints[0] as usize;
+                                kernel_w = attr.ints[1] as usize;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                if let Some(w_name) = node.input.get(1) {
+                    if let Some(tensor) = initializers.get(w_name) {
+                        filters = *tensor.dims.first().unwrap_or(&32);
+                        if !tensor.float_data.is_empty() {
+                            let cols = tensor.dims.iter().skip(1).product::<usize>().max(1);
+                            weights.insert(
+                                name.clone(),
+                                WeightMatrix::new(filters, cols, tensor.float_data.clone()),
+                            );
+                        }
+                    }
+                }
+
+                Some(LayerType::Conv2d {
+                    filters,
+                    kernel_size: (kernel_h, kernel_w),
+                    activation: "relu".to_string(),
+                })
+            }
+            "MaxPool" | "AveragePool" | "GlobalAveragePool" => {
+                let pool_type = if node.op_type.contains("Average") {
+                    "avg"
+                } else {
+                    "max"
+                }
+                .to_string();
+
+                let mut size = 2usize;
+                for attr in &node.attribute {
+                    if attr.name == "kernel_shape" && !attr.ints.is_empty() {
+                        size = attr.ints[0] as usize;
+                    }
+                }
+
+                Some(LayerType::Pooling {
+                    pool_type,
+                    size: (size, size),
+                })
+            }
+            "Flatten" | "Reshape" => Some(LayerType::Flatten),
+            "BatchNormalization" => Some(LayerType::BatchNorm),
+            "Dropout" => {
+                let rate = node
+                    .attribute
+                    .iter()
+                    .find(|a| a.name == "ratio")
+                    .and_then(|a| a.f)
+                    .unwrap_or(0.5) as f64;
+                Some(LayerType::Dropout { rate })
+            }
+            "Softmax" | "LogSoftmax" => {
+                // Terminal activation — skip as separate layer
+                None
+            }
+            _ => {
+                Some(LayerType::Custom {
+                    name: node.op_type.clone(),
+                })
+            }
+        };
+
+        if let Some(lt) = layer_type {
+            let id = model_graph.add_layer(&name, lt);
+            model_graph.connect(prev_layer_id, id);
+            prev_layer_id = id;
+            layer_idx += 1;
+        }
+    }
+
+    Ok(ModelDefinition {
+        graph: model_graph,
+        weights,
+        biases,
+        class_labels,
+    })
+}
 
 #[cfg(test)]
 mod tests {
@@ -780,5 +1162,126 @@ mod tests {
         assert!(report.total_weights > 0);
         assert!(report.projected_weights > 0);
         assert!(report.duration_ms >= 0.0);
+    }
+
+    #[test]
+    fn onnx_json_parse_simple_mlp() {
+        let onnx_json = r#"{
+            "graph": {
+                "name": "test_mlp",
+                "node": [
+                    {
+                        "op_type": "Gemm",
+                        "name": "dense1",
+                        "input": ["input", "dense1_w", "dense1_b"],
+                        "output": ["dense1_out"],
+                        "attribute": []
+                    },
+                    {
+                        "op_type": "Relu",
+                        "name": "relu1",
+                        "input": ["dense1_out"],
+                        "output": ["relu1_out"],
+                        "attribute": []
+                    },
+                    {
+                        "op_type": "Gemm",
+                        "name": "dense2",
+                        "input": ["relu1_out", "dense2_w"],
+                        "output": ["output"],
+                        "attribute": []
+                    }
+                ],
+                "initializer": [
+                    {
+                        "name": "dense1_w",
+                        "dims": [4, 3],
+                        "float_data": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2]
+                    },
+                    {
+                        "name": "dense1_b",
+                        "dims": [4],
+                        "float_data": [0.01, 0.02, 0.03, 0.04]
+                    },
+                    {
+                        "name": "dense2_w",
+                        "dims": [2, 4],
+                        "float_data": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]
+                    }
+                ],
+                "input": [{"name": "input"}],
+                "output": [{"name": "output"}]
+            }
+        }"#;
+
+        let labels = vec!["cat".to_string(), "dog".to_string()];
+        let def = parse_onnx_json(onnx_json, labels.clone()).unwrap();
+
+        assert_eq!(def.class_labels, labels);
+        assert!(def.weights.contains_key("dense1"));
+        assert!(def.weights.contains_key("dense2"));
+        assert!(def.biases.contains_key("dense1"));
+        assert_eq!(def.weights["dense1"].rows, 4);
+        assert_eq!(def.weights["dense1"].cols, 3);
+    }
+
+    #[test]
+    fn onnx_json_parse_cnn() {
+        let onnx_json = r#"{
+            "graph": {
+                "name": "test_cnn",
+                "node": [
+                    {
+                        "op_type": "Conv",
+                        "name": "conv1",
+                        "input": ["input", "conv1_w"],
+                        "output": ["conv1_out"],
+                        "attribute": [{"name": "kernel_shape", "ints": [3, 3]}]
+                    },
+                    {
+                        "op_type": "MaxPool",
+                        "name": "pool1",
+                        "input": ["conv1_out"],
+                        "output": ["pool1_out"],
+                        "attribute": [{"name": "kernel_shape", "ints": [2]}]
+                    },
+                    {
+                        "op_type": "Flatten",
+                        "name": "flatten",
+                        "input": ["pool1_out"],
+                        "output": ["flat_out"],
+                        "attribute": []
+                    }
+                ],
+                "initializer": [
+                    {
+                        "name": "conv1_w",
+                        "dims": [16, 1, 3, 3],
+                        "float_data": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9,
+                                       0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+                    }
+                ],
+                "input": [{"name": "input"}],
+                "output": [{"name": "output"}]
+            }
+        }"#;
+
+        let def = parse_onnx_json(onnx_json, vec!["0".to_string(), "1".to_string()]).unwrap();
+        assert!(def.weights.contains_key("conv1"));
+        assert_eq!(def.weights["conv1"].rows, 16);
     }
 }

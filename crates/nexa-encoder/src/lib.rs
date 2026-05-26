@@ -15,6 +15,9 @@ pub enum DataType {
     Json,
     Csv,
     Binary,
+    Image,
+    Audio,
+    Sensor,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -164,6 +167,176 @@ impl NexaEncoder {
         Ok(hv)
     }
 
+    // -- Image --------------------------------------------------------------
+
+    /// Encode a grayscale image as a hypervector.
+    ///
+    /// `pixels` is a flat row-major array of pixel values (0-255).
+    /// `width` and `height` define the image dimensions.
+    /// Divides the image into non-overlapping patches and encodes each patch
+    /// with positional binding, then bundles all patches.
+    pub fn encode_image(
+        &mut self,
+        pixels: &[u8],
+        width: usize,
+        height: usize,
+    ) -> Result<BinaryHV> {
+        if pixels.is_empty() || width == 0 || height == 0 {
+            return Err(NexaError::EmptyInput);
+        }
+        if pixels.len() != width * height {
+            return Err(NexaError::EncodingError(format!(
+                "pixel count {} != {}x{}", pixels.len(), width, height
+            )));
+        }
+
+        let patch_size = 4.min(width).min(height).max(1);
+        let patches_x = (width + patch_size - 1) / patch_size;
+        let patches_y = (height + patch_size - 1) / patch_size;
+        let mut patch_hvs = Vec::new();
+
+        for py in 0..patches_y {
+            for px in 0..patches_x {
+                let patch_idx = py * patches_x + px;
+                let mut patch_tokens = Vec::new();
+                for dy in 0..patch_size {
+                    for dx in 0..patch_size {
+                        let y = py * patch_size + dy;
+                        let x = px * patch_size + dx;
+                        if y < height && x < width {
+                            let pixel = pixels[y * width + x];
+                            // Quantize to 16 levels for manageable codebook size
+                            let level = pixel / 16;
+                            patch_tokens.push(format!("px_{}", level));
+                        }
+                    }
+                }
+                let token_refs: Vec<&str> = patch_tokens.iter().map(|s| s.as_str()).collect();
+                let patch_hv = SequenceEncoder::encode(&mut self.codebook, &token_refs)?;
+                patch_hvs.push(patch_hv.permute(patch_idx as isize));
+            }
+        }
+
+        let refs: Vec<&BinaryHV> = patch_hvs.iter().collect();
+        let hv = BinaryHV::bundle(&refs)?;
+        let record = EncodingRecord {
+            id: format!("image_{}", self.records.len()),
+            original_data: pixels.to_vec(),
+            data_type: DataType::Image,
+        };
+        self.records.push((hv.clone(), record));
+        Ok(hv)
+    }
+
+    // -- Audio --------------------------------------------------------------
+
+    /// Encode audio samples as a hypervector.
+    ///
+    /// `samples` is a flat array of audio sample values (e.g., i16 range as bytes).
+    /// `frame_size` is the number of samples per frame (e.g., 256).
+    /// Each frame is encoded as a byte sequence, bound with temporal position, then bundled.
+    pub fn encode_audio(&mut self, samples: &[u8], frame_size: usize) -> Result<BinaryHV> {
+        if samples.is_empty() || frame_size == 0 {
+            return Err(NexaError::EmptyInput);
+        }
+
+        let num_frames = (samples.len() + frame_size - 1) / frame_size;
+        let mut frame_hvs = Vec::new();
+
+        for f in 0..num_frames {
+            let start = f * frame_size;
+            let end = (start + frame_size).min(samples.len());
+            let frame = &samples[start..end];
+
+            // Encode frame: quantize bytes into spectral-band tokens
+            // Group every 4 bytes and compute average for compression
+            let chunk_size = 4.min(frame.len()).max(1);
+            let mut tokens = Vec::new();
+            for chunk in frame.chunks(chunk_size) {
+                let avg: u16 = chunk.iter().map(|&b| b as u16).sum::<u16>() / chunk.len() as u16;
+                tokens.push(format!("af_{}", avg / 8)); // 32 quantization levels
+            }
+            let token_refs: Vec<&str> = tokens.iter().map(|s| s.as_str()).collect();
+            let frame_hv = SequenceEncoder::encode(&mut self.codebook, &token_refs)?;
+            frame_hvs.push(frame_hv.permute(f as isize));
+        }
+
+        let refs: Vec<&BinaryHV> = frame_hvs.iter().collect();
+        let hv = BinaryHV::bundle(&refs)?;
+        let record = EncodingRecord {
+            id: format!("audio_{}", self.records.len()),
+            original_data: samples.to_vec(),
+            data_type: DataType::Audio,
+        };
+        self.records.push((hv.clone(), record));
+        Ok(hv)
+    }
+
+    // -- Sensor -------------------------------------------------------------
+
+    /// Encode multi-channel sensor data as a hypervector.
+    ///
+    /// `channels` is a slice of named channels, each containing a time series of f32 values.
+    /// Each channel is encoded by quantizing values, binding with channel identity,
+    /// then bundling across channels and timesteps.
+    pub fn encode_sensor(
+        &mut self,
+        channels: &[(&str, &[f32])],
+    ) -> Result<BinaryHV> {
+        if channels.is_empty() {
+            return Err(NexaError::EmptyInput);
+        }
+
+        let max_len = channels.iter().map(|(_, v)| v.len()).max().unwrap_or(0);
+        if max_len == 0 {
+            return Err(NexaError::EmptyInput);
+        }
+
+        let mut timestep_hvs = Vec::new();
+
+        for t in 0..max_len {
+            let mut channel_hvs = Vec::new();
+            for (name, values) in channels {
+                if t < values.len() {
+                    let channel_hv = self.codebook.get_or_insert(&format!("__ch_{}__", name)).clone();
+                    // Quantize f32 to 64 levels in [-1, 1] range
+                    let clamped = values[t].clamp(-1.0, 1.0);
+                    let level = ((clamped + 1.0) * 31.5) as u8;
+                    let val_hv = self.codebook.get_or_insert(&format!("sv_{}", level)).clone();
+                    channel_hvs.push(channel_hv.bind(&val_hv)?);
+                }
+            }
+            if !channel_hvs.is_empty() {
+                let refs: Vec<&BinaryHV> = channel_hvs.iter().collect();
+                let bundled = BinaryHV::bundle(&refs)?;
+                timestep_hvs.push(bundled.permute(t as isize));
+            }
+        }
+
+        let refs: Vec<&BinaryHV> = timestep_hvs.iter().collect();
+        let hv = BinaryHV::bundle(&refs)?;
+
+        // Serialize channel info for the record
+        let sensor_data: Vec<u8> = channels
+            .iter()
+            .flat_map(|(name, vals)| {
+                let mut bytes = name.as_bytes().to_vec();
+                bytes.push(b':');
+                bytes.extend(vals.iter().flat_map(|v| v.to_le_bytes()));
+                bytes.push(b';');
+                bytes
+            })
+            .collect();
+
+        let record = EncodingRecord {
+            id: format!("sensor_{}", self.records.len()),
+            original_data: sensor_data,
+            data_type: DataType::Sensor,
+        };
+        self.records.push((hv.clone(), record));
+        Ok(hv)
+    }
+
     // -- Accessors ----------------------------------------------------------
 
     pub fn records(&self) -> &[(BinaryHV, EncodingRecord)] {
@@ -296,5 +469,61 @@ mod tests {
         assert_eq!(raw_vectors[1], expected2);
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn image_encode_deterministic() {
+        let mut enc1 = NexaEncoder::new(DIM, SEED);
+        let mut enc2 = NexaEncoder::new(DIM, SEED);
+        // 8x8 grayscale image
+        let pixels: Vec<u8> = (0..64).map(|i| (i * 4) as u8).collect();
+        let hv1 = enc1.encode_image(&pixels, 8, 8).unwrap();
+        let hv2 = enc2.encode_image(&pixels, 8, 8).unwrap();
+        assert_eq!(hv1, hv2);
+    }
+
+    #[test]
+    fn image_different_images_dissimilar() {
+        let mut enc = NexaEncoder::new(DIM, SEED);
+        let bright: Vec<u8> = vec![200u8; 64];
+        let dark: Vec<u8> = vec![10u8; 64];
+        let hv1 = enc.encode_image(&bright, 8, 8).unwrap();
+        let hv2 = enc.encode_image(&dark, 8, 8).unwrap();
+        let sim = hv1.hamming_similarity(&hv2).unwrap();
+        // Different images should not be identical
+        assert!(sim < 0.95, "Different images should be dissimilar, got {sim}");
+    }
+
+    #[test]
+    fn audio_encode_deterministic() {
+        let mut enc1 = NexaEncoder::new(DIM, SEED);
+        let mut enc2 = NexaEncoder::new(DIM, SEED);
+        let samples: Vec<u8> = (0..256).map(|i| (i % 256) as u8).collect();
+        let hv1 = enc1.encode_audio(&samples, 64).unwrap();
+        let hv2 = enc2.encode_audio(&samples, 64).unwrap();
+        assert_eq!(hv1, hv2);
+    }
+
+    #[test]
+    fn sensor_encode_deterministic() {
+        let mut enc1 = NexaEncoder::new(DIM, SEED);
+        let mut enc2 = NexaEncoder::new(DIM, SEED);
+        let accel = vec![0.1f32, 0.5, -0.3, 0.8];
+        let gyro = vec![0.0f32, -0.2, 0.7, -0.5];
+        let channels = vec![("accel_x", accel.as_slice()), ("gyro_z", gyro.as_slice())];
+        let hv1 = enc1.encode_sensor(&channels).unwrap();
+        let hv2 = enc2.encode_sensor(&channels).unwrap();
+        assert_eq!(hv1, hv2);
+    }
+
+    #[test]
+    fn sensor_different_data_dissimilar() {
+        let mut enc = NexaEncoder::new(DIM, SEED);
+        let ch1 = vec![0.9f32; 10];
+        let ch2 = vec![-0.9f32; 10];
+        let hv1 = enc.encode_sensor(&[("x", ch1.as_slice())]).unwrap();
+        let hv2 = enc.encode_sensor(&[("x", ch2.as_slice())]).unwrap();
+        let sim = hv1.hamming_similarity(&hv2).unwrap();
+        assert!(sim < 0.95, "Different sensor data should be dissimilar, got {sim}");
     }
 }

@@ -109,6 +109,104 @@ fn bench_similarity_search(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_lsh_search(c: &mut Criterion) {
+    let mut group = c.benchmark_group("lsh_search");
+    let dim = 1_000;
+    for &n in &[100, 500, 1_000] {
+        let mut lsh = nexa_runtime::LshIndex::new(dim, 10, 12, 42);
+        for i in 0..n {
+            lsh.insert(
+                format!("v{}", i),
+                BinaryHV::random(dim, i as u64).unwrap(),
+            );
+        }
+        let query = BinaryHV::random(dim, 9999).unwrap();
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |bench, _| {
+            bench.iter(|| lsh.search(&query, 10));
+        });
+    }
+    group.finish();
+}
+
+fn bench_compression(c: &mut Criterion) {
+    let mut group = c.benchmark_group("compression");
+    let dim = 10_000;
+    for &count in &[10, 50, 100] {
+        let vecs: Vec<BinaryHV> = (0..count)
+            .map(|i| BinaryHV::random(dim, i as u64).unwrap())
+            .collect();
+        let raw: Vec<u8> = vecs
+            .iter()
+            .flat_map(|v| v.words().iter().flat_map(|w| w.to_le_bytes()))
+            .collect();
+
+        group.bench_with_input(
+            BenchmarkId::new("deflate", count),
+            &count,
+            |bench, _| {
+                bench.iter(|| nexa_compress::deflate_compress(&raw));
+            },
+        );
+        group.bench_with_input(
+            BenchmarkId::new("delta", count),
+            &count,
+            |bench, _| {
+                let stride = (dim + 63) / 64 * 8;
+                bench.iter(|| {
+                    let delta = nexa_compress::delta_encode(&raw, stride);
+                    nexa_compress::deflate_compress(&delta)
+                });
+            },
+        );
+    }
+    group.finish();
+}
+
+fn bench_knn_classify(c: &mut Criterion) {
+    let mut group = c.benchmark_group("knn_classify");
+    let dim = 1_000;
+    let base_a = BinaryHV::random(dim, 1000).unwrap();
+    let base_b = BinaryHV::random(dim, 2000).unwrap();
+
+    for &n in &[50, 200, 500] {
+        let mut knn = nexa_runtime::KnnClassifier::new(dim, 3);
+        for i in 0..(n / 2) as u64 {
+            knn.insert("A".to_string(), base_a.corrupt(0.1, i));
+            knn.insert("B".to_string(), base_b.corrupt(0.1, 1000 + i));
+        }
+        let query = base_a.corrupt(0.15, 9999);
+        group.bench_with_input(BenchmarkId::from_parameter(n), &n, |bench, _| {
+            bench.iter(|| knn.predict(&query));
+        });
+    }
+    group.finish();
+}
+
+fn bench_encryption(c: &mut Criterion) {
+    let mut group = c.benchmark_group("encryption");
+    for &dim in &[1_000, 10_000] {
+        let hv = BinaryHV::random(dim, 42).unwrap();
+        group.bench_with_input(BenchmarkId::from_parameter(dim), &dim, |bench, _| {
+            bench.iter(|| nexa_runtime::NexaCrypto::encrypt(&hv, 12345));
+        });
+    }
+    group.finish();
+}
+
+fn bench_image_encoding(c: &mut Criterion) {
+    let mut group = c.benchmark_group("image_encoding");
+    let dim = 10_000;
+    // 28x28 like MNIST
+    let pixels: Vec<u8> = (0..784).map(|i| (i % 256) as u8).collect();
+    group.bench_function("28x28", |bench| {
+        bench.iter(|| {
+            let mut enc = NexaEncoder::new(dim, 42);
+            enc.encode_image(&pixels, 28, 28).unwrap()
+        });
+    });
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_xor_binding,
@@ -118,5 +216,10 @@ criterion_group!(
     bench_cleanup_memory,
     bench_text_encoding,
     bench_similarity_search,
+    bench_lsh_search,
+    bench_compression,
+    bench_knn_classify,
+    bench_encryption,
+    bench_image_encoding,
 );
 criterion_main!(benches);
