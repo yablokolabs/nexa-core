@@ -58,8 +58,9 @@ graph TD
     JSON["JSON"] --> UE
     CSV["CSV"] --> UE
     Binary["Binary"] --> UE
-    Sensors["Sensor Data"] --> UE
-    Images["Image Metadata"] --> UE
+    Images["Images<br/>(patch-based)"] --> UE
+    Audio["Audio<br/>(frame-based)"] --> UE
+    Sensors["Sensor Data<br/>(channel-indexed)"] --> UE
 
     UE --> HDS["Hyperdimensional Space"]
 
@@ -424,11 +425,15 @@ Universal model wrapping engine that translates neural network models to operate
 ```mermaid
 flowchart TD
     ModelDef["Model Definition<br/>(topology + weights)"] --> ForgeEngine["ForgeEngine"]
+    ONNX["ONNX JSON"] --> OnnxParser["parse_onnx_json()"]
+    OnnxParser --> ModelDef
     ForgeEngine --> |"1. Analyze topology"| Analyze["Layer Analysis"]
     ForgeEngine --> |"2. Project weights"| Project["Random Projection<br/>into HV Space"]
     ForgeEngine --> |"3. Translate layers"| Translate["Layer Translation"]
 
     Translate --> Dense["Dense → HV Dot Product"]
+    Translate --> Conv2d["Conv2d → Patch Projection"]
+    Translate --> Pooling["Pooling → Max/Avg Reduce"]
     Translate --> ReLU["ReLU → Threshold"]
     Translate --> Softmax["Softmax → Normalized Similarity"]
     Translate --> BN["BatchNorm → L2 Normalize"]
@@ -1111,8 +1116,10 @@ NexaCore includes a machine-checked proof layer that formally verifies the algeb
 
 ```mermaid
 flowchart TD
-    RawData["Raw Data"] --> Encoder
+    RawData["Raw Data<br/>(Text/Image/Audio/Sensor)"] --> Encoder
     Encoder --> HVS["Hypervector Space"]
+    HVS --> Crypto["NexaCrypto"]
+    Crypto --> HVS
     HVS --> Runtime
     Runtime --> Decoder
     Decoder --> Recovery["Recovered Data"]
