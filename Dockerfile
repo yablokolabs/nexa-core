@@ -9,7 +9,7 @@
 #   NEXA_BIN — path to nexa binary (default: /usr/local/bin/nexa)
 
 # --- Build stage: compile Rust binary ---
-FROM rust:1.82-bookworm AS builder
+FROM rust:1.86-bookworm AS builder
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
