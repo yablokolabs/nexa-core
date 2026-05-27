@@ -1,8 +1,21 @@
+# MCPize Configuration
+# Docs: https://mcpize.com/docs/mcpize-yaml
+
 version: 1
-name: nexacore
+
+name: "NexaCore"
+slug: "nexacore"
 description: "Universal representation runtime — encode any data into high-dimensional holographic hypervectors, compute directly in encoded space, and decode back."
+
 runtime: container
+
 build:
   dockerfile: Dockerfile
+
+entry: "mcp/server.py"
+
 startCommand:
   type: stdio
+  command: "python"
+  args:
+    - "mcp/server.py"
